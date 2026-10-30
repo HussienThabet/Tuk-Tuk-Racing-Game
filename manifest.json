@@ -1,0 +1,10 @@
+{
+  "name": "توكتوك باشا – سباق الحواري المصرية",
+  "short_name": "توكتوك باشا",
+  "description": "لعبة سباق التوكتوك ثلاثية الأبعاد في شوارع وحواري القاهرة المصرية",
+  "start_url": "./index.html",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0c0918",
+  "theme_color": "#ffbe0b"
+}

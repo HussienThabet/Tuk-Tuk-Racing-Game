@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0c0918" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <link rel="manifest" href="manifest.json" />
+  <title>توكتوك باشا – سباق الحواري المصرية 🇪🇬</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&family=Tajawal:wght@500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+  <!-- Three.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <!-- 3D Canvas Container -->
+  <div id="canvas-container"></div>
+  <!-- Split screen divider for 2P mode -->
+  <div id="split-divider" class="hidden">
+    <div class="split-label p1-label">لاعب ١ (الأسطى باشا) - WASD</div>
+    <div class="split-label p2-label">لاعب ٢ (المعلم زغلول) - الأسهم</div>
+  </div>
+
+  <!-- MAIN MENU OVERLAY -->
+  <div id="main-menu" class="screen-overlay active">
+    <div class="shaabi-bunting"></div>
+    <div class="menu-container">
+      <div class="menu-header">
+        <div class="egypt-badge">🇪🇬 صُنع في حواري المحروسة 🇪🇬</div>
+        <h1 class="game-title">توكتوك باشا</h1>
+        <h2 class="game-subtitle">سباق الحواري المصرية • شبرا • إمبابة • السيدة زينب</h2>
+      </div>
+
+      <div class="menu-grid">
+        <!-- Left column: Game Modes -->
+        <div class="menu-card modes-card">
+          <h3>🏁 اختار نظام اللعب يا أسطى</h3>
+          <div class="mode-buttons">
+            <button class="mode-btn primary-mode" data-mode="career">
+              <span class="mode-icon">👑</span>
+              <div class="mode-info">
+                <strong>مشوار الباشا (Career Mode)</strong>
+                <small>ابدأ من أول الحارة لحد ما تبقى ملك التكاتك في القاهرة!</small>
+              </div>
+              <span class="badge-level" id="career-stage-badge">المرحلة ١</span>
+            </button>
+
+            <button class="mode-btn" data-mode="quick">
+              <span class="mode-icon">🔥</span>
+              <div class="mode-info">
+                <strong>سباق الحواري السريع (Quick Race)</strong>
+                <small>٣ لفات طحن وسط الزحمة والميكروباصات والفرارخ!</small>
+              </div>
+            </button>
+
+            <button class="mode-btn" data-mode="delivery">
+              <span class="mode-icon">🍲</span>
+              <div class="mode-info">
+                <strong>تحدي الدليفري السخن (Delivery Challenge)</strong>
+                <small>وصّل طلبات الكشري والحواوشي وعصير القصب قبل ما تبرد!</small>
+              </div>
+            </button>
+
+            <button class="mode-btn" data-mode="freeroam">
+              <span class="mode-icon">🛺</span>
+              <div class="mode-info">
+                <strong>تمشية في المنطقة (Free Roam)</strong>
+                <small>لف براحتك في الشوارع، اكتشف الحواري المختصرة ولمّ جنيهات</small>
+              </div>
+            </button>
+
+            <button class="mode-btn" data-mode="multiplayer">
+              <span class="mode-icon">🎮</span>
+              <div class="mode-info">
+                <strong>تحدي الصحاب (Local 2-Players)</strong>
+                <small>شاشة مقسومة! لاعب ١ (WASD) ضد لاعب ٢ (الأسهم)</small>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Right column: Atmosphere, Garage & Controls -->
+        <div class="menu-side">
+          <div class="menu-card env-card">
+            <h3>🌙 جو الحارة والوقت</h3>
+            <div class="env-selector">
+              <button class="env-btn active" data-env="ramadan">🏮 ليالي رمضان</button>
+              <button class="env-btn" data-env="day">☀️ نهار شبرا</button>
+              <button class="env-btn" data-env="sunset">🌇 غروب إمبابة</button>
+              <button class="env-btn" data-env="night">🌃 سهرة السيدة</button>
+            </div>
+          </div>
+
+          <div class="menu-card garage-preview-card">
+            <div class="garage-header-row">
+              <h3>🔧 ورشة الأسطى عبده</h3>
+              <div class="Menu-coins"><span id="menu-coin-count">500</span> ج.م 💰</div>
+            </div>
+            <p class="selected-tuktuk-info" id="selected-tuktuk-label">التوكتوك الحالي: <strong>الأحمر الناري - "عيون الحسود فيها عود"</strong></p>
+            <button id="open-garage-btn" class="action-btn gold-btn">🎨 تعديل وترويق التوكتوك (الجراج)</button>
+          </div>
+
+          <div class="menu-card controls-card">
+            <h3>🕹️ الزراير والتحكم</h3>
+            <div class="controls-grid">
+              <div><kbd>W</kbd> / <kbd>↑</kbd> بنزين</div>
+              <div><kbd>S</kbd> / <kbd>↓</kbd> فرامل / مارشديه</div>
+              <div><kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd> يمين وشمال</div>
+              <div><kbd>Space</kbd> فرامل يد (تخميس)</div>
+              <div><kbd>Shift</kbd> أنبوبة النيترو 🚀</div>
+              <div><kbd>H</kbd> سرينة التوكتوك 📯</div>
+              <div><kbd>C</kbd> تغيير الكاميرا 🎥</div>
+              <div><kbd>M</kbd> راديو شعبي 🎵</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- GARAGE / CUSTOMIZATION OVERLAY -->
+  <div id="garage-screen" class="screen-overlay hidden">
+    <div class="garage-modal">
+      <div class="garage-top">
+        <h2>🔧 ورشة الأسطى عبده لترويق التكاتك</h2>
+        <div class="garage-wallet">الرصيد: <span id="garage-coins">500</span> جنيه 💰</div>
+      </div>
+
+      <div class="garage-body">
+        <div class="garage-options">
+          <div class="custom-group">
+            <label>🎨 لون التوكتوك والفرنشة:</label>
+            <div class="color-swatches" id="color-swatches">
+              <button class="swatch active" data-color="#e6192e" style="background:#e6192e" title="أحمر عفريت"></button>
+              <button class="swatch" data-color="#00b4d8" style="background:#00b4d8" title="لبني إسكندراني"></button>
+              <button class="swatch" data-color="#ffbe0b" style="background:#ffbe0b" title="أصفر كناري"></button>
+              <button class="swatch" data-color="#2ec4b6" style="background:#2ec4b6" title="فسفوري حواري"></button>
+              <button class="swatch" data-color="#8338ec" style="background:#8338ec" title="موف ملوكي"></button>
+              <button class="swatch" data-color="#ff006e" style="background:#ff006e" title="فوشيا شعبي"></button>
+            </div>
+          </div>
+
+          <div class="custom-group">
+            <label>💡 إضاءة النيون تحت التوكتوك:</label>
+            <div class="neon-swatches" id="neon-swatches">
+              <button class="neon-btn active" data-neon="#00f5d4">فيروزي</button>
+              <button class="neon-btn" data-neon="#ff007f">فوشيا</button>
+              <button class="neon-btn" data-neon="#ffbe0b">دهبي</button>
+              <button class="neon-btn" data-neon="#3a86ff">أزرق</button>
+              <button class="neon-btn" data-neon="#38b000">أخضر</button>
+            </div>
+          </div>
+
+          <div class="custom-group">
+            <label>📜 الحكمة المكتوبة على ضهر التوكتوك:</label>
+            <select id="slogan-select" class="shaabi-select">
+              <option value="عيون الحسود فيها عود 🧿">عيون الحسود فيها عود 🧿</option>
+              <option value="ما تبحلقش كدة يا عسل كلها قسط 💸">ما تبحلقش كدة يا عسل كلها قسط 💸</option>
+              <option value="التوكتوك الباشا - دعاء الوالدين 🤲">التوكتوك الباشا - دعاء الوالدين 🤲</option>
+              <option value="طير إنت يا معلم! 🚀">طير إنت يا معلم! 🚀</option>
+              <option value="الحلوة من شبرا والقلب إمبابي ❤️">الحلوة من شبرا والقلب إمبابي ❤️</option>
+              <option value="خليك في حالك عشان المركب تمشي ⚓">خليك في حالك عشان المركب تمشي ⚓</option>
+            </select>
+          </div>
+
+          <div class="custom-group upgrades-section">
+            <label>⚙️ تعديل الموتور والعفشة:</label>
+            <div class="upgrade-item">
+              <div class="upgrade-meta">
+                <strong>موتور ٢ سلندر معدل (السرعة)</strong>
+                <div class="stat-bar"><div id="bar-speed" class="stat-fill" style="width: 40%"></div></div>
+              </div>
+              <button class="buy-upgrade-btn" data-upgrade="speed">ترقية (150 ج.م)</button>
+            </div>
+
+            <div class="upgrade-item">
+              <div class="upgrade-meta">
+                <strong>أنبوبة نيترو سوبر (التيربو)</strong>
+                <div class="stat-bar"><div id="bar-nitro" class="stat-fill" style="width: 40%"></div></div>
+              </div>
+              <button class="buy-upgrade-btn" data-upgrade="nitro">ترقية (150 ج.م)</button>
+            </div>
+
+            <div class="upgrade-item">
+              <div class="upgrade-meta">
+                <strong>عفشة ودركسيون حرير (التحكم والتخميس)</strong>
+                <div class="stat-bar"><div id="bar-handling" class="stat-fill" style="width: 40%"></div></div>
+              </div>
+              <button class="buy-upgrade-btn" data-upgrade="handling">ترقية (150 ج.م)</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="garage-footer">
+        <button id="close-garage-btn" class="action-btn green-btn">✅ تمام يا أسطى عبده! ارجع للقائمة</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- IN-GAME HUD -->
+  <div id="game-hud" class="hidden">
+    <!-- Top Bar: Position, Lap, Timer, Coins, Mode Info -->
+    <div class="hud-top">
+      <div class="hud-stat-box rank-box" id="hud-rank-box">
+        <span class="stat-label">المركز</span>
+        <span class="stat-value" id="hud-position">1 / 5</span>
+      </div>
+
+      <div class="hud-stat-box lap-box" id="hud-lap-box">
+        <span class="stat-label" id="hud-lap-label">اللفة</span>
+        <span class="stat-value" id="hud-lap">1 / 3</span>
+      </div>
+
+      <div class="hud-stat-box timer-box">
+        <span class="stat-label" id="hud-timer-label">الوقت</span>
+        <span class="stat-value" id="hud-timer">01:30</span>
+      </div>
+
+      <div class="hud-stat-box coins-box">
+        <span class="stat-label">الغلة 💰</span>
+        <span class="stat-value" id="hud-coins">0 ج.م</span>
+      </div>
+
+      <div class="hud-quick-actions">
+        <button id="hud-touch-btn" class="hud-icon-btn" title="أزرار الموبايل والشاشة">📱</button>
+        <button id="hud-horn-btn" class="hud-icon-btn" title="سرينة (H)">📯</button>
+        <button id="hud-cam-btn" class="hud-icon-btn" title="الكاميرا (C)">🎥</button>
+        <button id="hud-music-btn" class="hud-icon-btn active" title="الراديو الشعبي (M)">🎵</button>
+        <button id="hud-pause-btn" class="hud-icon-btn" title="إيقاف مؤقت (Esc)">⏸️</button>
+      </div>
+    </div>
+
+    <!-- Center Announcements (3-2-1 Countdown, Random Funny Events, Mission Prompts) -->
+    <div id="countdown-banner" class="countdown-banner hidden">٣</div>
+
+    <div id="event-alert" class="event-alert hidden">
+      <span class="event-icon" id="event-icon">🐔</span>
+      <div class="event-text">
+        <strong id="event-title">خلي بالك من الفرخة يا معلم!</strong>
+        <span id="event-desc">فرخة هربانة من الفرارجي بتعدي الشارع!</span>
+      </div>
+    </div>
+
+    <!-- Egyptian Voice Line Toast -->
+    <div id="voice-toast" class="voice-toast hidden">
+      <div class="avatar-circle" id="voice-avatar">🧔🏽</div>
+      <div class="voice-bubble">
+        <div class="speaker-name" id="voice-speaker">الأسطى باشا</div>
+        <div class="voice-line-text" id="voice-text">"وسع يا أسطى، التوكتوك الباشا وصل!"</div>
+      </div>
+    </div>
+
+    <!-- Dedicated PlayStation-Style Analog & Diamond Button Controls Overlay -->
+    <div id="mobile-controls" class="mobile-controls">
+      <!-- Left Side: L1 Horn Trigger + PlayStation 360° Left Analog Thumbstick (L3) -->
+      <div class="mobile-pad ps-left-pad">
+        <button type="button" class="ps-shoulder-btn" id="touch-horn" aria-label="سرينة">
+          <span class="ps-shoulder-tag">L1</span>
+          <span>📯 سرينة</span>
+        </button>
+
+        <div id="ps-analog-zone" class="ps-analog-zone" aria-label="عصا الأنالوج للتوجيه">
+          <div class="ps-analog-ring">
+            <span class="analog-dir dir-up">▲</span>
+            <span class="analog-dir dir-down">▼</span>
+            <span class="analog-dir dir-left">◄</span>
+            <span class="analog-dir dir-right">►</span>
+          </div>
+          <div id="ps-analog-knob" class="ps-analog-knob">
+            <div class="ps-knob-grip">L3</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Side: R2 Turbo Trigger + PlayStation Diamond Buttons (△ ○ × □) -->
+      <div class="mobile-pad ps-right-pad">
+        <div class="ps-diamond-cluster">
+          <!-- Top: Triangle (Nitro) -->
+          <button type="button" class="ps-face-btn ps-triangle" id="touch-nitro" aria-label="نيترو">
+            <span class="ps-symbol">△</span>
+            <small>نيترو</small>
+          </button>
+
+          <!-- Left: Square (Brake / Reverse) -->
+          <button type="button" class="ps-face-btn ps-square" id="touch-brake" aria-label="فرامل">
+            <span class="ps-symbol">□</span>
+            <small>فرامل</small>
+          </button>
+
+          <!-- Right: Circle (Handbrake Drift) -->
+          <button type="button" class="ps-face-btn ps-circle" id="touch-drift" aria-label="تخميس">
+            <span class="ps-symbol">○</span>
+            <small>تخميس</small>
+          </button>
+
+          <!-- Bottom: Cross X (Gas / Accelerate) -->
+          <button type="button" class="ps-face-btn ps-cross" id="touch-gas" aria-label="بنزين">
+            <span class="ps-symbol">✕</span>
+            <small>بنزين</small>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom HUD: Minimap + Speedometer + Nitro & Fuel Gauges -->
+    <div class="hud-bottom">
+      <!-- Minimap -->
+      <div class="minimap-panel">
+        <div class="minimap-title">🗺️ خريطة الحارة</div>
+        <canvas id="minimap-canvas" width="170" height="170"></canvas>
+      </div>
+
+      <!-- Gauges: Nitro, Fuel, Speedometer -->
+      <div class="gauges-panel">
+        <div class="bars-column">
+          <div class="gauge-row">
+            <span class="gauge-label">🚀 أنبوبة النيترو</span>
+            <div class="gauge-track">
+              <div id="hud-nitro-bar" class="gauge-fill nitro-fill" style="width: 100%"></div>
+            </div>
+          </div>
+          <div class="gauge-row">
+            <span class="gauge-label">⛽ البنزين</span>
+            <div class="gauge-track">
+              <div id="hud-fuel-bar" class="gauge-fill fuel-fill" style="width: 100%"></div>
+            </div>
+          </div>
+          <div id="drift-Chain-badge" class="drift-badge hidden">🔥 تخميس عالمي! +نيترو</div>
+        </div>
+
+        <div class="speedometer-dial">
+          <div class="speed-number" id="hud-speed">0</div>
+          <div class="speed-unit">كم/س</div>
+          <div class="slogan-mini" id="hud-slogan">عيون الحسود فيها عود 🧿</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAUSE / RESULTS MODAL -->
+  <div id="results-screen" class="screen-overlay hidden">
+    <div class="results-modal">
+      <div class="results-trophy" id="results-icon">🏆</div>
+      <h2 id="results-title">مبروك يا باشا الحارة!</h2>
+      <p id="results-subtitle">سواقة معلمين ما يغلبهاش ميكروباص ولا زحمة!</p>
+
+      <div class="results-stats" id="results-stats">
+        <div class="res-row"><span>المركز النهائي:</span> <strong id="res-rank">الأول 🥇</strong></div>
+        <div class="res-row"><span>الغلة اللي لميتها:</span> <strong id="res-coins">+120 ج.م 💰</strong></div>
+        <div class="res-row"><span>مكافأة السباق:</span> <strong id="res-bonus">+200 ج.م 🎁</strong></div>
+      </div>
+
+      <div class="results-actions">
+        <button id="btn-restart-race" class="action-btn gold-btn">🔄 العب كمان جولة</button>
+        <button id="btn-next-career" class="action-btn green-btn hidden">⏭️ الحارة اللي بعدها</button>
+        <button id="btn-back-menu" class="action-btn">🏠 القائمة الرئيسية</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="audio.js"></script>
+  <script src="world.js"></script>
+  <script src="entities.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
