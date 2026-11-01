@@ -24,9 +24,11 @@
     return GeoCache[k];
   }
 
-  function getSphere(r, w, h) {
-    const k = `sph_${r}_${w}_${h}`;
-    if (!GeoCache[k]) GeoCache[k] = new THREE.SphereGeometry(r, w, h);
+  function getSphere(r, w, h, phiStart, phiLen, thetaStart, thetaLen) {
+    const k = `sph_${r}_${w}_${h}_${phiStart}_${phiLen}_${thetaStart}_${thetaLen}`;
+    if (!GeoCache[k]) {
+      GeoCache[k] = new THREE.SphereGeometry(r, w, h, phiStart, phiLen, thetaStart, thetaLen);
+    }
     return GeoCache[k];
   }
 
@@ -198,6 +200,7 @@
     }
 
     const tex = new THREE.CanvasTexture(canvas);
+    tex.needsUpdate = true;
     TexCache[key] = tex;
     return tex;
   }
@@ -249,6 +252,7 @@
     }
 
     const tex = new THREE.CanvasTexture(canvas);
+    tex.needsUpdate = true;
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
     TexCache[key] = tex;
@@ -424,7 +428,7 @@
 
       // Egyptian Footwear (Slippers / Balgha / Oxford Shoes / Sneakers)
       const shoeMat = getMat(cfg.shoeColor || 0x2b1e17, 0.5);
-      [-this.leftLeg, this.rightLeg].forEach((leg) => {
+      [this.leftLeg, this.rightLeg].forEach((leg) => {
         const shoe = new THREE.Mesh(getBox(0.12, 0.09, 0.22), shoeMat);
         shoe.position.set(0, -legHeight + 0.045, 0.04);
         leg.add(shoe);
