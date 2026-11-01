@@ -1083,3 +1083,71 @@ kbd {
   display: flex;
   gap: 10px;
 }
+
+/* ---------- Open-world taxi HUD: fare card + tip popups ---------- */
+.fare-card {
+  position: fixed;
+  top: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 250px;
+  padding: 8px 18px;
+  border-radius: 16px;
+  background: var(--cairo-night);
+  border: 2px solid var(--gold);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  text-align: center;
+  pointer-events: none;
+  z-index: 11;
+}
+
+.fare-name {
+  font-weight: 900;
+  color: #fff;
+  font-size: 1rem;
+}
+
+.fare-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 2px;
+  font-weight: 800;
+  font-size: 0.9rem;
+  color: var(--gold);
+}
+
+.fare-tip {
+  color: var(--nile-cyan);
+}
+
+.popup-stack {
+  position: fixed;
+  top: 36%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+  z-index: 12;
+}
+
+.popup-item {
+  font-size: 1.5rem;
+  font-weight: 900;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.75), 0 0 14px rgba(0, 0, 0, 0.6);
+  animation: popupRise 1.7s ease-out forwards;
+}
+
+@keyframes popupRise {
+  0% { transform: translateY(14px) scale(0.6); opacity: 0; }
+  15% { transform: translateY(0) scale(1.15); opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: translateY(-34px) scale(1); opacity: 0; }
+}
+
+#minimap-canvas {
+  border-radius: 50%;
+}

@@ -18,11 +18,6 @@
 <body>
   <!-- 3D Canvas Container -->
   <div id="canvas-container"></div>
-  <!-- Split screen divider for 2P mode -->
-  <div id="split-divider" class="hidden">
-    <div class="split-label p1-label">لاعب ١ (الأسطى باشا) - WASD</div>
-    <div class="split-label p2-label">لاعب ٢ (المعلم زغلول) - الأسهم</div>
-  </div>
 
   <!-- MAIN MENU OVERLAY -->
   <div id="main-menu" class="screen-overlay active">
@@ -31,52 +26,28 @@
       <div class="menu-header">
         <div class="egypt-badge">🇪🇬 صُنع في حواري المحروسة 🇪🇬</div>
         <h1 class="game-title">توكتوك باشا</h1>
-        <h2 class="game-subtitle">سباق الحواري المصرية • شبرا • إمبابة • السيدة زينب</h2>
+        <h2 class="game-subtitle">تاكسي القاهرة المفتوحة • شبرا • إمبابة • السيدة زينب</h2>
       </div>
 
       <div class="menu-grid">
         <!-- Left column: Game Modes -->
         <div class="menu-card modes-card">
-          <h3>🏁 اختار نظام اللعب يا أسطى</h3>
+          <h3>🛺 اختار نظام اللعب يا أسطى</h3>
           <div class="mode-buttons">
-            <button class="mode-btn primary-mode" data-mode="career">
-              <span class="mode-icon">👑</span>
+            <button class="mode-btn primary-mode" data-mode="taxi">
+              <span class="mode-icon">🚖</span>
               <div class="mode-info">
-                <strong>مشوار الباشا (Career Mode)</strong>
-                <small>ابدأ من أول الحارة لحد ما تبقى ملك التكاتك في القاهرة!</small>
+                <strong>وردية التاكسي (Taxi Shift)</strong>
+                <small>شيل الركاب من الشارع ووصّلهم قبل ما الوقت يخلص، واكسب أجرة وإكرامية!</small>
               </div>
-              <span class="badge-level" id="career-stage-badge">المرحلة ١</span>
-            </button>
-
-            <button class="mode-btn" data-mode="quick">
-              <span class="mode-icon">🔥</span>
-              <div class="mode-info">
-                <strong>سباق الحواري السريع (Quick Race)</strong>
-                <small>٣ لفات طحن وسط الزحمة والميكروباصات والفرارخ!</small>
-              </div>
-            </button>
-
-            <button class="mode-btn" data-mode="delivery">
-              <span class="mode-icon">🍲</span>
-              <div class="mode-info">
-                <strong>تحدي الدليفري السخن (Delivery Challenge)</strong>
-                <small>وصّل طلبات الكشري والحواوشي وعصير القصب قبل ما تبرد!</small>
-              </div>
+              <span class="badge-level" id="career-stage-badge">0 توصيلة</span>
             </button>
 
             <button class="mode-btn" data-mode="freeroam">
-              <span class="mode-icon">🛺</span>
+              <span class="mode-icon">🌆</span>
               <div class="mode-info">
-                <strong>تمشية في المنطقة (Free Roam)</strong>
-                <small>لف براحتك في الشوارع، اكتشف الحواري المختصرة ولمّ جنيهات</small>
-              </div>
-            </button>
-
-            <button class="mode-btn" data-mode="multiplayer">
-              <span class="mode-icon">🎮</span>
-              <div class="mode-info">
-                <strong>تحدي الصحاب (Local 2-Players)</strong>
-                <small>شاشة مقسومة! لاعب ١ (WASD) ضد لاعب ٢ (الأسهم)</small>
+                <strong>تمشية حرة في القاهرة (Free Roam)</strong>
+                <small>لف براحتك في الحواري والميادين والكورنيش، وجرّب القفزات واكتشف المنطقة</small>
               </div>
             </button>
           </div>
@@ -87,8 +58,8 @@
           <div class="menu-card env-card">
             <h3>🌙 جو الحارة والوقت</h3>
             <div class="env-selector">
-              <button class="env-btn active" data-env="ramadan">🏮 ليالي رمضان</button>
-              <button class="env-btn" data-env="day">☀️ نهار شبرا</button>
+              <button class="env-btn" data-env="ramadan">🏮 ليالي رمضان</button>
+              <button class="env-btn active" data-env="day">☀️ نهار شبرا</button>
               <button class="env-btn" data-env="sunset">🌇 غروب إمبابة</button>
               <button class="env-btn" data-env="night">🌃 سهرة السيدة</button>
             </div>
@@ -234,7 +205,17 @@
       </div>
     </div>
 
-    <!-- Center Announcements (3-2-1 Countdown, Random Funny Events, Mission Prompts) -->
+    <!-- Active fare card + floating tip popups -->
+    <div id="fare-card" class="fare-card hidden">
+      <div class="fare-name" id="fare-name">🧑🏽 الراكب</div>
+      <div class="fare-row">
+        <span id="fare-money">الأجرة 0 ج.م</span>
+        <span id="fare-tip" class="fare-tip">إكرامية +0</span>
+      </div>
+    </div>
+    <div id="popup-stack" class="popup-stack"></div>
+
+    <!-- Center Announcements (event banners, mission prompts) -->
     <div id="countdown-banner" class="countdown-banner hidden">٣</div>
 
     <div id="event-alert" class="event-alert hidden">
@@ -363,8 +344,10 @@
   </div>
 
   <script src="audio.js"></script>
-  <script src="world.js"></script>
+  <script src="people.js"></script>
+  <script src="city.js"></script>
   <script src="entities.js"></script>
+  <script src="citylife.js"></script>
   <script src="game.js"></script>
 </body>
 </html>

@@ -315,26 +315,35 @@ class TukTukVehicle {
     dash.position.set(0, 1.22, 1.05);
     this.bodyTiltGroup.add(dash);
 
-    // Driver Seat Saddle & Driver ("الأسطى")
+    // Driver Seat Saddle & Realistic Articulated Driver ("الأسطى المعلم")
     const driverSeat = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.22, 0.48), seatMat);
     driverSeat.position.set(0, 0.72, 0.45);
-    const driverTorso = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.26, 0.31, 0.78, 10),
-      new THREE.MeshLambertMaterial({ color: 0x00b4d8 })
-    );
-    driverTorso.position.set(0, 1.22, 0.42);
-    const driverHead = new THREE.Mesh(
-      new THREE.SphereGeometry(0.23, 12, 12),
-      new THREE.MeshLambertMaterial({ color: 0xd49a6a })
-    );
-    driverHead.position.set(0, 1.78, 0.42);
-    // Egyptian Cap / Tagia on driver
-    const cap = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.235, 0.24, 0.14, 12),
-      new THREE.MeshLambertMaterial({ color: 0xffffff })
-    );
-    cap.position.set(0, 1.9, 0.42);
-    this.bodyTiltGroup.add(driverSeat, driverTorso, driverHead, cap);
+    this.bodyTiltGroup.add(driverSeat);
+
+    if (window.EgyptianPeople && window.EgyptianPeople.createDriver) {
+      this.driverGroup = window.EgyptianPeople.createDriver({
+        shirtColor: 0x0096c7,
+        skinColor: 0xd2976c
+      });
+      this.bodyTiltGroup.add(this.driverGroup);
+    } else {
+      const driverTorso = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.26, 0.31, 0.78, 10),
+        new THREE.MeshLambertMaterial({ color: 0x00b4d8 })
+      );
+      driverTorso.position.set(0, 1.22, 0.42);
+      const driverHead = new THREE.Mesh(
+        new THREE.SphereGeometry(0.23, 12, 12),
+        new THREE.MeshLambertMaterial({ color: 0xd49a6a })
+      );
+      driverHead.position.set(0, 1.78, 0.42);
+      const cap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.235, 0.24, 0.14, 12),
+        new THREE.MeshLambertMaterial({ color: 0xffffff })
+      );
+      cap.position.set(0, 1.9, 0.42);
+      this.bodyTiltGroup.add(driverTorso, driverHead, cap);
+    }
 
     // Rear Passenger Bench Seat ("الكنبة الخلفية المنجدة")
     const benchSeat = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.26, 0.62), seatMat);
@@ -601,6 +610,20 @@ class TukTukVehicle {
     }
   }
 
+  // Place the tuk-tuk at an arbitrary world position (open-world mode)
+  resetAt(x, z, heading = 0) {
+    this.position.set(x, 0, z);
+    this.heading = heading;
+    this.speed = 0;
+    this.verticalVel = 0;
+    this.yOffset = 0;
+    this.driftAngle = 0;
+    this.nitro = 100;
+    this.fuel = 100;
+    this.coinsCollected = 0;
+    this.syncMesh(0);
+  }
+
   resetAtTrackT(world, t, laneOffset = 0) {
     const pt = world.curve.getPointAt(t % 1);
     const tangent = world.curve.getTangentAt(t % 1).normalize();
@@ -712,6 +735,13 @@ class TukTukVehicle {
       }
     }
 
+    // Open-world city: collide with buildings/props instead of following a track
+    if (world.isCity) {
+      world.resolveCollisions(this);
+      this.syncMesh(steerDir, dt);
+      return;
+    }
+
     // Keep within Cairo street curb boundaries & track progress
     const info = world.getTrackInfo(this.position);
     const maxOffset = world.roadWidth * 0.52;
@@ -803,6 +833,12 @@ class TukTukVehicle {
     this.bodyTiltGroup.rotation.z += (targetRoll - this.bodyTiltGroup.rotation.z) * Math.min(1, dt * 10);
     this.bodyTiltGroup.rotation.x += (targetPitch - this.bodyTiltGroup.rotation.x) * Math.min(1, dt * 10);
 
+    // Realistic driver dynamic steering & posture reaction
+    if (this.driverGroup && this.driverGroup.userData && this.driverGroup.userData.updateDriver) {
+      const curSteer = this.frontForkGroup ? this.frontForkGroup.rotation.y : targetSteerAngle;
+      this.driverGroup.userData.updateDriver(curSteer, this.speed, this.bodyTiltGroup.rotation.z, targetPitch);
+    }
+
     // Spin wheels
     this.wheels.forEach(w => {
       w.rotation.x += this.speed * dt * 1.6;
@@ -835,9 +871,12 @@ class StreetEntitiesManager {
     this.deliveryTarget = null;
     this.deliveryT = 0.18;
 
-    this.spawnTraffic();
-    this.spawnCollectibles();
-    this.buildDeliveryMarker();
+    // Racing-track extras are only built for the old spline world
+    if (!world.isCity) {
+      this.spawnTraffic();
+      this.spawnCollectibles();
+      this.buildDeliveryMarker();
+    }
   }
 
   createVehicleDecalTexture(topText, bottomText, bgColor, textColor) {

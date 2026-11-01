@@ -1,4 +1,4 @@
-// game.js - Main Game Loop, Modes, Camera System, Garage, Minimap & UI Controller
+// game.js - Open-world Cairo taxi game (Crazy Taxi style): free roam, passengers, fares, tips.
 
 class TukTukBashaGame {
   constructor() {
@@ -10,46 +10,51 @@ class TukTukBashaGame {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.container.appendChild(this.renderer.domElement);
 
-    // Primary Camera & Secondary Camera (for Local 2-Player Split Screen)
-    this.camera1 = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.5, 900);
-    this.camera2 = new THREE.PerspectiveCamera(62, (window.innerWidth * 0.5) / window.innerHeight, 0.5, 900);
-    this.cameraMode = 0; // 0: Chase, 1: Close Action, 2: High Shaabi Cinematic
+    this.camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.5, 700);
+    this.cameraMode = 0; // 0: chase, 1: low action, 2: high panorama
 
-    // Persistent Player Profile
+    // Persistent profile
     this.profile = {
       coins: 500,
-      careerStage: 1,
       color: '#e6192e',
       neon: '#00f5d4',
       slogan: 'عيون الحسود فيها عود 🧿',
-      upgrades: { speed: 1, nitro: 1, handling: 1 }
+      upgrades: { speed: 1, nitro: 1, handling: 1 },
+      stats: { fares: 0, best: 0, earned: 0 }
     };
     this.loadProfile();
 
-    // Build 3D Cairo World & Street Entities
-    this.world = new CairoWorld(this.scene);
-    this.entities = new StreetEntitiesManager(this.scene, this.world);
+    // World + living city
+    this.world = new CairoCity(this.scene);
+    this.life = new CityLife(this.scene, this.world);
 
-    // Vehicles
-    this.player1 = null;
-    this.player2 = null;
-    this.rivals = [];
-    this.allVehicles = [];
+    // Player
+    this.player = new TukTukVehicle(this.scene, {
+      isPlayer: true,
+      name: 'الأسطى باشا',
+      color: this.profile.color,
+      neonColor: this.profile.neon,
+      slogan: this.profile.slogan
+    });
+    this.applyUpgradesToPlayer(this.player);
+    this.spawnPlayer();
 
-    this.spawnVehicles();
+    // GPS arrow floating above the tuk-tuk
+    this.arrow = this.createGpsArrow();
 
-    // Game State
-    this.state = 'MENU'; // MENU, GARAGE, COUNTDOWN, PLAYING, RESULTS
-    this.mode = 'career';
-    this.totalLaps = 3;
-    this.timer = 0;
-    this.deliveriesMade = 0;
-    this.deliveriesGoal = 5;
-    this.lastPlayerRank = 1;
+    // State
+    this.state = 'MENU'; // MENU | GARAGE | PLAYING
+    this.mode = 'taxi';  // taxi | freeroam
+    this.fare = this.newFareState();
+    this.airTime = 0;
+    this.driftAcc = 0;
+    this.crashCooldown = 0;
+    this.visTimer = 0;
+    this.hudCache = {};
 
-    // Input State
+    // Input
     this.keys = {};
-    this.touchInput = { left: false, right: false, gas: false, brake: false, drift: false, nitro: false };
+    this.touchInput = { left: false, right: false, gas: false, brake: false, drift: false, nitro: false, steerAnalog: 0 };
 
     // Minimap
     this.minimapCanvas = document.getElementById('minimap-canvas');
@@ -63,12 +68,14 @@ class TukTukBashaGame {
     this.animate();
   }
 
+  // ------------------------------------------------------------------ profile
   loadProfile() {
     try {
       const saved = localStorage.getItem('tuktuk_basha_profile_v1');
       if (saved) {
         const parsed = JSON.parse(saved);
         Object.assign(this.profile, parsed);
+        if (!this.profile.stats) this.profile.stats = { fares: 0, best: 0, earned: 0 };
       }
     } catch (e) {}
   }
@@ -79,43 +86,6 @@ class TukTukBashaGame {
     } catch (e) {}
   }
 
-  spawnVehicles() {
-    this.player1 = new TukTukVehicle(this.scene, {
-      isPlayer: true,
-      playerIndex: 1,
-      name: 'الأسطى باشا',
-      color: this.profile.color,
-      neonColor: this.profile.neon,
-      slogan: this.profile.slogan
-    });
-    this.applyUpgradesToPlayer(this.player1);
-
-    // Player 2 / Rival configs
-    const rivalConfigs = [
-      { name: 'المعلم زغلول', color: '#00b4d8', neonColor: '#ffbe0b', slogan: 'طير إنت يا معلم! 🚀', lane: -3.5, skill: 0.94 },
-      { name: 'الأسطى حودة', color: '#ffbe0b', neonColor: '#ff006e', slogan: 'الحلوة من شبرا ❤️', lane: 3.5, skill: 0.91 },
-      { name: 'المعلم شطة', color: '#8338ec', neonColor: '#00f5d4', slogan: 'ربنا يحميك يا ابني 🤲', lane: -5.5, skill: 0.89 },
-      { name: 'كابتن بيبو', color: '#2ec4b6', neonColor: '#38b000', slogan: 'سكة السلامة ⚓', lane: 5.5, skill: 0.86 }
-    ];
-
-    this.rivals = rivalConfigs.map((rc, idx) => {
-      return new TukTukVehicle(this.scene, {
-        isPlayer: false,
-        playerIndex: idx + 2,
-        name: rc.name,
-        color: rc.color,
-        neonColor: rc.neonColor,
-        slogan: rc.slogan,
-        aiLaneOffset: rc.lane,
-        aiSkill: rc.skill
-      });
-    });
-
-    this.player2 = this.rivals[0];
-    this.allVehicles = [this.player1, ...this.rivals];
-    this.resetAllVehicles();
-  }
-
   applyUpgradesToPlayer(v) {
     v.maxSpeed = 43 + (this.profile.upgrades.speed - 1) * 4.5;
     v.accel = 28 + (this.profile.upgrades.speed - 1) * 3.0;
@@ -124,68 +94,58 @@ class TukTukBashaGame {
     v.applyCustomization(this.profile.color, this.profile.neon, this.profile.slogan);
   }
 
-  resetAllVehicles() {
-    this.player1.resetAtTrackT(this.world, 0.992, 0);
-    this.rivals.forEach((r, idx) => {
-      const startT = 0.985 - idx * 0.006;
-      const lane = (idx % 2 === 0 ? -1 : 1) * (3.2 + (idx >> 1) * 2.2);
-      r.resetAtTrackT(this.world, startT, lane);
-    });
+  spawnPlayer() {
+    this.player.resetAt(4 * this.world.C, 4 * this.world.C, 0);
   }
 
+  // --------------------------------------------------------------------- events
   bindEvents() {
     window.addEventListener('resize', () => {
       this.renderer.setSize(window.innerWidth, window.innerHeight);
-      this.camera1.aspect = window.innerWidth / window.innerHeight;
-      this.camera1.updateProjectionMatrix();
-      this.camera2.aspect = (window.innerWidth * 0.5) / window.innerHeight;
-      this.camera2.updateProjectionMatrix();
+      this.camera.aspect = window.innerWidth / window.innerHeight;
+      this.camera.updateProjectionMatrix();
     });
 
     window.addEventListener('keydown', (e) => {
       this.keys[e.code] = true;
-      if (e.code === 'KeyH' && this.state === 'PLAYING') {
+      if (this.state !== 'PLAYING') return;
+      if (e.code === 'KeyH') {
         window.audioSys.playHorn();
-        window.audioSys.speakCategory('start');
-      } else if (e.code === 'KeyC' && this.state === 'PLAYING') {
+      } else if (e.code === 'KeyC') {
         this.cameraMode = (this.cameraMode + 1) % 3;
       } else if (e.code === 'KeyM') {
         const on = window.audioSys.toggleMusic();
         document.getElementById('hud-music-btn').classList.toggle('active', on);
-      } else if (e.code === 'Escape' && this.state === 'PLAYING') {
+      } else if (e.code === 'KeyR') {
+        this.respawnPlayer();
+      } else if (e.code === 'Escape') {
         this.returnToMenu();
       }
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+    });
+    window.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
+
+    // Mode buttons
+    document.querySelectorAll('.mode-btn').forEach((btn) => {
+      btn.addEventListener('click', () => this.startMode(btn.getAttribute('data-mode')));
     });
 
-    window.addEventListener('keyup', (e) => {
-      this.keys[e.code] = false;
-    });
-
-    // Mode Selection Buttons
-    document.querySelectorAll('.mode-btn').forEach(btn => {
+    // Environment buttons
+    document.querySelectorAll('.env-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const mode = btn.getAttribute('data-mode');
-        this.startMode(mode);
-      });
-    });
-
-    // Environment Buttons
-    document.querySelectorAll('.env-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.env-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.env-btn').forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
         this.world.setEnvironment(btn.getAttribute('data-env'));
       });
     });
 
-    // Garage Buttons
+    // Garage
     document.getElementById('open-garage-btn').addEventListener('click', () => {
       this.state = 'GARAGE';
       document.getElementById('main-menu').classList.add('hidden');
       document.getElementById('garage-screen').classList.remove('hidden');
       this.updateGarageUI();
     });
-
     document.getElementById('close-garage-btn').addEventListener('click', () => {
       this.state = 'MENU';
       document.getElementById('garage-screen').classList.add('hidden');
@@ -193,43 +153,36 @@ class TukTukBashaGame {
       this.updateMenuUI();
     });
 
-    // Color swatches
-    document.querySelectorAll('#color-swatches .swatch').forEach(sw => {
+    document.querySelectorAll('#color-swatches .swatch').forEach((sw) => {
       sw.addEventListener('click', () => {
-        document.querySelectorAll('#color-swatches .swatch').forEach(s => s.classList.remove('active'));
+        document.querySelectorAll('#color-swatches .swatch').forEach((s) => s.classList.remove('active'));
         sw.classList.add('active');
         this.profile.color = sw.getAttribute('data-color');
-        this.applyUpgradesToPlayer(this.player1);
+        this.applyUpgradesToPlayer(this.player);
         this.saveProfile();
       });
     });
-
-    // Neon swatches
-    document.querySelectorAll('#neon-swatches .neon-btn').forEach(nb => {
+    document.querySelectorAll('#neon-swatches .neon-btn').forEach((nb) => {
       nb.addEventListener('click', () => {
-        document.querySelectorAll('#neon-swatches .neon-btn').forEach(n => n.classList.remove('active'));
+        document.querySelectorAll('#neon-swatches .neon-btn').forEach((n) => n.classList.remove('active'));
         nb.classList.add('active');
         this.profile.neon = nb.getAttribute('data-neon');
-        this.applyUpgradesToPlayer(this.player1);
+        this.applyUpgradesToPlayer(this.player);
         this.saveProfile();
       });
     });
-
-    // Slogan select
     document.getElementById('slogan-select').addEventListener('change', (e) => {
       this.profile.slogan = e.target.value;
-      this.applyUpgradesToPlayer(this.player1);
+      this.applyUpgradesToPlayer(this.player);
       this.saveProfile();
     });
-
-    // Upgrades
-    document.querySelectorAll('.buy-upgrade-btn').forEach(btn => {
+    document.querySelectorAll('.buy-upgrade-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         const type = btn.getAttribute('data-upgrade');
         if (this.profile.upgrades[type] < 5 && this.profile.coins >= 150) {
           this.profile.coins -= 150;
           this.profile.upgrades[type]++;
-          this.applyUpgradesToPlayer(this.player1);
+          this.applyUpgradesToPlayer(this.player);
           this.saveProfile();
           this.updateGarageUI();
           window.audioSys.playCoin();
@@ -237,37 +190,33 @@ class TukTukBashaGame {
       });
     });
 
-    // HUD Action Buttons
+    // HUD buttons
     const mobileControlsEl = document.getElementById('mobile-controls');
     const touchToggleBtn = document.getElementById('hud-touch-btn');
-    if (mobileControlsEl) {
+    const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || window.innerWidth <= 950;
+    if (isTouchDevice && mobileControlsEl) {
       mobileControlsEl.classList.add('force-show');
       if (touchToggleBtn) touchToggleBtn.classList.add('active');
     }
-
     if (touchToggleBtn && mobileControlsEl) {
       touchToggleBtn.addEventListener('click', () => {
         const shown = mobileControlsEl.classList.toggle('force-show');
         touchToggleBtn.classList.toggle('active', shown);
       });
     }
-
-    document.getElementById('hud-horn-btn').addEventListener('click', () => {
-      window.audioSys.playHorn();
-      window.audioSys.speakCategory('start');
-    });
-    document.getElementById('hud-cam-btn').addEventListener('click', () => {
-      this.cameraMode = (this.cameraMode + 1) % 3;
-    });
+    document.getElementById('hud-horn-btn').addEventListener('click', () => window.audioSys.playHorn());
+    document.getElementById('hud-cam-btn').addEventListener('click', () => { this.cameraMode = (this.cameraMode + 1) % 3; });
     document.getElementById('hud-music-btn').addEventListener('click', () => {
       const on = window.audioSys.toggleMusic();
       document.getElementById('hud-music-btn').classList.toggle('active', on);
     });
-    document.getElementById('hud-pause-btn').addEventListener('click', () => {
-      this.returnToMenu();
-    });
+    document.getElementById('hud-pause-btn').addEventListener('click', () => this.returnToMenu());
 
-    // Multi-touch PlayStation Analog Stick (L3) & Diamond Face Buttons (△ ○ × □)
+    this.bindTouchControls();
+  }
+
+  bindTouchControls() {
+    // PlayStation-style analog stick
     const analogZone = document.getElementById('ps-analog-zone');
     const analogKnob = document.getElementById('ps-analog-knob');
     if (analogZone && analogKnob) {
@@ -275,28 +224,21 @@ class TukTukBashaGame {
       let isPointerDown = false;
       const maxRadius = 44;
 
-      const updateStickFromPoint = (clientX, clientY) => {
+      const updateStick = (clientX, clientY) => {
         const rect = analogZone.getBoundingClientRect();
-        const centerX = rect.left + rect.width * 0.5;
-        const centerY = rect.top + rect.height * 0.5;
-        let dx = clientX - centerX;
-        let dy = clientY - centerY;
+        const cx = rect.left + rect.width * 0.5;
+        const cy = rect.top + rect.height * 0.5;
+        let dx = clientX - cx, dy = clientY - cy;
         const dist = Math.hypot(dx, dy);
-        if (dist > maxRadius) {
-          dx = (dx / dist) * maxRadius;
-          dy = (dy / dist) * maxRadius;
-        }
+        if (dist > maxRadius) { dx = (dx / dist) * maxRadius; dy = (dy / dist) * maxRadius; }
         analogKnob.style.transform = `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`;
-
-        const normX = dx / maxRadius; // -1 (left) to +1 (right)
-        const normY = dy / maxRadius; // -1 (up/forward) to +1 (down/reverse)
-        this.touchInput.steerAnalog = Math.abs(normX) > 0.06 ? normX : 0;
-        this.touchInput.left = normX < -0.18;
-        this.touchInput.right = normX > 0.18;
-        this.touchInput.analogGas = normY < -0.35;
-        this.touchInput.analogBrake = normY > 0.45;
+        const nx = dx / maxRadius, ny = dy / maxRadius;
+        this.touchInput.steerAnalog = Math.abs(nx) > 0.06 ? nx : 0;
+        this.touchInput.left = nx < -0.18;
+        this.touchInput.right = nx > 0.18;
+        this.touchInput.analogGas = ny < -0.35;
+        this.touchInput.analogBrake = ny > 0.45;
       };
-
       const resetStick = () => {
         activeTouchId = null;
         isPointerDown = false;
@@ -311,51 +253,39 @@ class TukTukBashaGame {
 
       analogZone.addEventListener('touchstart', (e) => {
         if (e.cancelable) e.preventDefault();
-        const touch = e.changedTouches[0];
-        activeTouchId = touch.identifier;
+        const t = e.changedTouches[0];
+        activeTouchId = t.identifier;
         analogZone.classList.add('active');
-        updateStickFromPoint(touch.clientX, touch.clientY);
+        updateStick(t.clientX, t.clientY);
       }, { passive: false });
-
       analogZone.addEventListener('touchmove', (e) => {
         if (activeTouchId === null) return;
         if (e.cancelable) e.preventDefault();
         for (let i = 0; i < e.touches.length; i++) {
-          if (e.touches[i].identifier === activeTouchId) {
-            updateStickFromPoint(e.touches[i].clientX, e.touches[i].clientY);
-            break;
-          }
+          if (e.touches[i].identifier === activeTouchId) { updateStick(e.touches[i].clientX, e.touches[i].clientY); break; }
         }
       }, { passive: false });
-
       const endTouch = (e) => {
         if (activeTouchId === null) return;
         for (let i = 0; i < e.changedTouches.length; i++) {
-          if (e.changedTouches[i].identifier === activeTouchId) {
-            resetStick();
-            break;
-          }
+          if (e.changedTouches[i].identifier === activeTouchId) { resetStick(); break; }
         }
       };
       analogZone.addEventListener('touchend', endTouch, { passive: false });
       analogZone.addEventListener('touchcancel', endTouch, { passive: false });
 
-      // Mouse / Pointer fallback for desktop testing
       analogZone.addEventListener('pointerdown', (e) => {
         if (e.pointerType === 'touch') return;
         isPointerDown = true;
         analogZone.setPointerCapture(e.pointerId);
         analogZone.classList.add('active');
-        updateStickFromPoint(e.clientX, e.clientY);
+        updateStick(e.clientX, e.clientY);
       });
       analogZone.addEventListener('pointermove', (e) => {
         if (!isPointerDown || e.pointerType === 'touch') return;
-        updateStickFromPoint(e.clientX, e.clientY);
+        updateStick(e.clientX, e.clientY);
       });
-      analogZone.addEventListener('pointerup', (e) => {
-        if (e.pointerType === 'touch') return;
-        resetStick();
-      });
+      analogZone.addEventListener('pointerup', (e) => { if (e.pointerType !== 'touch') resetStick(); });
       analogZone.addEventListener('pointercancel', resetStick);
     }
 
@@ -386,34 +316,22 @@ class TukTukBashaGame {
     bindTouch('touch-drift', 'drift');
     bindTouch('touch-nitro', 'nitro');
 
-    const touchHornBtn = document.getElementById('touch-horn');
-    if (touchHornBtn) {
-      const triggerHorn = (e) => {
+    const hornBtn = document.getElementById('touch-horn');
+    if (hornBtn) {
+      const horn = (e) => {
         if (e && e.cancelable) e.preventDefault();
         window.audioSys.playHorn();
-        window.audioSys.speakCategory('start');
       };
-      touchHornBtn.addEventListener('touchstart', triggerHorn, { passive: false });
-      touchHornBtn.addEventListener('pointerdown', triggerHorn);
+      hornBtn.addEventListener('touchstart', horn, { passive: false });
+      hornBtn.addEventListener('pointerdown', horn);
     }
-
-    // Results Screen Buttons
-    document.getElementById('btn-restart-race').addEventListener('click', () => {
-      document.getElementById('results-screen').classList.add('hidden');
-      this.startMode(this.mode);
-    });
-    document.getElementById('btn-next-career').addEventListener('click', () => {
-      document.getElementById('results-screen').classList.add('hidden');
-      this.startMode('career');
-    });
-    document.getElementById('btn-back-menu').addEventListener('click', () => {
-      this.returnToMenu();
-    });
   }
 
+  // ------------------------------------------------------------------------ UI
   updateMenuUI() {
     document.getElementById('menu-coin-count').textContent = this.profile.coins;
-    document.getElementById('career-stage-badge').textContent = `المرحلة ${this.profile.careerStage}`;
+    const badge = document.getElementById('career-stage-badge');
+    if (badge) badge.textContent = `${this.profile.stats.fares} توصيلة`;
     document.getElementById('selected-tuktuk-label').innerHTML =
       `التوكتوك الحالي: <strong>"${this.profile.slogan}"</strong>`;
   }
@@ -425,447 +343,559 @@ class TukTukBashaGame {
     document.getElementById('bar-handling').style.width = `${this.profile.upgrades.handling * 20}%`;
   }
 
+  setText(id, value) {
+    if (this.hudCache[id] === value) return;
+    this.hudCache[id] = value;
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  }
+
+  popup(text, color = '#ffbe0b') {
+    const stack = document.getElementById('popup-stack');
+    if (!stack) return;
+    const d = document.createElement('div');
+    d.className = 'popup-item';
+    d.textContent = text;
+    d.style.color = color;
+    stack.appendChild(d);
+    while (stack.children.length > 5) stack.removeChild(stack.firstChild);
+    setTimeout(() => d.remove(), 1700);
+  }
+
+  // ------------------------------------------------------------------- modes
   startMode(mode) {
     this.mode = mode;
     window.audioSys.init();
     window.audioSys.startShaabiMusic();
     window.audioSys.startEngine();
 
-    this.applyUpgradesToPlayer(this.player1);
-    this.resetAllVehicles();
-
-    // Configure mode rules
-    const splitDivider = document.getElementById('split-divider');
-    splitDivider.classList.toggle('hidden', mode !== 'multiplayer');
-
-    this.player2.isPlayer = (mode === 'multiplayer');
-
-    // Toggle rival visibility in solo modes
-    const showRivals = (mode !== 'delivery' && mode !== 'freeroam');
-    this.rivals.forEach((r, idx) => {
-      if (mode === 'multiplayer') {
-        r.mesh.visible = (idx === 0); // Only Player 2 + traffic in 2P mode
-      } else {
-        r.mesh.visible = showRivals;
-      }
-    });
-
-    if (mode === 'career') {
-      this.totalLaps = 2 + Math.min(2, Math.floor(this.profile.careerStage / 2));
-      this.timer = 0;
-      // Scale AI difficulty gently with Career Stage
-      this.rivals.forEach((r, idx) => {
-        r.aiSkill = 0.86 + this.profile.careerStage * 0.025 - idx * 0.015;
-      });
-    } else if (mode === 'quick' || mode === 'multiplayer') {
-      this.totalLaps = 3;
-      this.timer = 0;
-    } else if (mode === 'delivery') {
-      this.deliveriesMade = 0;
-      this.deliveriesGoal = 5;
-      this.timer = 75; // 75 seconds countdown
-      this.entities.placeNextDeliveryZone(0);
-    } else if (mode === 'freeroam') {
-      this.timer = 0;
-    }
+    this.applyUpgradesToPlayer(this.player);
+    this.spawnPlayer();
+    this.clearFare();
+    this.airTime = 0;
+    this.driftAcc = 0;
+    this.shiftEarned = 0;
 
     document.getElementById('main-menu').classList.add('hidden');
     document.getElementById('results-screen').classList.add('hidden');
     document.getElementById('game-hud').classList.remove('hidden');
     document.getElementById('hud-slogan').textContent = this.profile.slogan;
 
-    // 3 - 2 - 1 - انطلق Countdown
-    this.state = 'COUNTDOWN';
-    const banner = document.getElementById('countdown-banner');
-    banner.classList.remove('hidden');
-    const steps = ['٣', '٢', '١', 'انطلق يا باشا! 🛺'];
-    let sIdx = 0;
-    banner.textContent = steps[0];
-    window.audioSys.playHorn();
+    this.state = 'PLAYING';
+    this.world.updateVisibility(this.player.position.x, this.player.position.z, true);
 
-    clearInterval(this.countdownInterval);
-    this.countdownInterval = setInterval(() => {
-      sIdx++;
-      if (sIdx < steps.length) {
-        banner.textContent = steps[sIdx];
-        if (sIdx === steps.length - 1) {
-          this.state = 'PLAYING';
-          window.audioSys.speakCategory('start');
-        }
-      } else {
-        banner.classList.add('hidden');
-        clearInterval(this.countdownInterval);
-      }
-    }, 850);
+    if (mode === 'taxi') {
+      this.fare.idleTimer = 0.4;
+      this.life.showEventBanner('🛺', 'ابدأ وردية التاكسي!', 'اقف جنب راكب (علامة ملونة) وبعدين وصّله قبل ما الوقت يخلص');
+    } else {
+      this.life.showEventBanner('🌆', 'القاهرة كلها بتاعتك', 'لف براحتك، لمّ الجنيهات وجرّب القفزات والاختصارات');
+    }
+    window.audioSys.speakCategory('start');
   }
 
   returnToMenu() {
-    clearInterval(this.countdownInterval);
+    this.clearFare();
+    this.saveProfile();
     this.state = 'MENU';
     window.audioSys.stopEngine();
     document.getElementById('game-hud').classList.add('hidden');
     document.getElementById('results-screen').classList.add('hidden');
-    document.getElementById('split-divider').classList.add('hidden');
     document.getElementById('main-menu').classList.remove('hidden');
     this.updateMenuUI();
   }
 
-  getPlayer1Input() {
-    if (this.mode === 'multiplayer') {
-      // In 2P Split Screen: Player 1 uses WASD + Space + ShiftLeft + PS Analog
-      return {
-        gas: !!(this.keys['KeyW'] || this.touchInput.gas || this.touchInput.analogGas),
-        brake: !!(this.keys['KeyS'] || this.touchInput.brake || this.touchInput.analogBrake),
-        left: !!(this.keys['KeyA'] || this.touchInput.left),
-        right: !!(this.keys['KeyD'] || this.touchInput.right),
-        steerAnalog: this.touchInput.steerAnalog || 0,
-        drift: !!(this.keys['Space'] || this.touchInput.drift),
-        nitro: !!(this.keys['ShiftLeft'] || this.touchInput.nitro)
-      };
-    }
-    // Single player accepts WASD, Arrow Keys, and PlayStation Analog + Face Buttons
+  respawnPlayer() {
+    const p = this.player;
+    const n = this.world.nearestIntersection(p.position.x, p.position.z);
+    p.resetAt(n.x, n.z, p.heading);
+    this.popup('↩️ رجّعناك للشارع', '#00f5d4');
+  }
+
+  // ------------------------------------------------------------------- fares
+  newFareState() {
     return {
-      gas: !!(this.keys['KeyW'] || this.keys['ArrowUp'] || this.touchInput.gas || this.touchInput.analogGas),
-      brake: !!(this.keys['KeyS'] || this.keys['ArrowDown'] || this.touchInput.brake || this.touchInput.analogBrake),
-      left: !!(this.keys['KeyA'] || this.keys['ArrowLeft'] || this.touchInput.left),
-      right: !!(this.keys['KeyD'] || this.keys['ArrowRight'] || this.touchInput.right),
-      steerAnalog: this.touchInput.steerAnalog || 0,
-      drift: !!(this.keys['Space'] || this.touchInput.drift),
-      nitro: !!(this.keys['ShiftLeft'] || this.keys['ShiftRight'] || this.touchInput.nitro)
+      state: 'IDLE',      // IDLE | WAITING | ONBOARD
+      waiting: [],        // waiting passengers { x,z,dest,fare,limit,marker,color,name }
+      active: null,
+      destMarker: null,
+      timeLeft: 0,
+      tip: 0,
+      idleTimer: 0
     };
   }
 
-  getPlayer2Input() {
-    return {
-      gas: !!this.keys['ArrowUp'],
-      brake: !!this.keys['ArrowDown'],
-      left: !!this.keys['ArrowLeft'],
-      right: !!this.keys['ArrowRight'],
-      drift: !!(this.keys['Slash'] || this.keys['ControlRight']),
-      nitro: !!(this.keys['ShiftRight'] || this.keys['Enter'])
-    };
+  clearFare() {
+    const f = this.fare;
+    if (f && f.waiting) f.waiting.forEach((p) => this.life.group.remove(p.marker));
+    if (f && f.destMarker) this.life.group.remove(f.destMarker);
+    this.fare = this.newFareState();
   }
 
-  handleVehicleCollisions() {
-    const activeList = this.allVehicles.filter(v => v.mesh.visible);
-    for (let i = 0; i < activeList.length; i++) {
-      for (let j = i + 1; j < activeList.length; j++) {
-        const a = activeList[i];
-        const b = activeList[j];
-        const dx = a.position.x - b.position.x;
-        const dz = a.position.z - b.position.z;
-        const distSq = dx * dx + dz * dz;
-        const minDist = 2.35;
-        if (distSq < minDist * minDist && distSq > 0.001) {
-          const dist = Math.sqrt(distSq);
-          const overlap = (minDist - dist) * 0.5;
-          const nx = dx / dist;
-          const nz = dz / dist;
-          a.position.x += nx * overlap;
-          a.position.z += nz * overlap;
-          b.position.x -= nx * overlap;
-          b.position.z -= nz * overlap;
+  dist2D(ax, az, bx, bz) {
+    return Math.hypot(ax - bx, az - bz);
+  }
 
-          if (a.isPlayer || b.isPlayer) {
-            window.audioSys.playCrash();
-          }
-        }
+  spawnPassengers() {
+    const f = this.fare;
+    const px = this.player.position.x, pz = this.player.position.z;
+    const names = ['أم محمود', 'الأستاذ هشام', 'حودة الطالب', 'الحاجة سعاد', 'المهندس كريم', 'منى المدرّسة', 'عم فتحي'];
+
+    for (let n = 0; n < 3; n++) {
+      let pick = null;
+      for (let tries = 0; tries < 40; tries++) {
+        const c = this.world.randomCurbPoint();
+        const d = this.dist2D(c.x, c.z, px, pz);
+        if (d > 50 && d < 380) { pick = c; break; }
       }
+      if (!pick) pick = this.world.randomCurbPoint();
+
+      let dest = null;
+      for (let tries = 0; tries < 60; tries++) {
+        const c = this.world.randomCurbPoint();
+        const d = this.dist2D(c.x, c.z, pick.x, pick.z);
+        // short / medium / long trips by slot so the player always has a choice
+        const want = [[90, 190], [190, 330], [330, 620]][n];
+        if (d >= want[0] && d <= want[1]) { dest = c; break; }
+      }
+      if (!dest) dest = this.world.randomCurbPoint();
+
+      const manhattan = Math.abs(dest.x - pick.x) + Math.abs(dest.z - pick.z);
+      const straight = this.dist2D(dest.x, dest.z, pick.x, pick.z);
+      const color = straight < 190 ? 0x38e07b : straight < 330 ? 0xffd23f : 0xff4d6d;
+      const marker = this.life.createPassengerMarker(color);
+      marker.position.set(pick.x, 0.3, pick.z);
+      this.life.group.add(marker);
+
+      f.waiting.push({
+        x: pick.x, z: pick.z, dest,
+        fare: Math.round(15 + manhattan * 0.25),
+        limit: 9 + manhattan / 18,
+        marker, color,
+        name: names[Math.floor(Math.random() * names.length)]
+      });
     }
+    f.state = 'WAITING';
   }
 
-  finishRace(won, customTitle, customSub, rankLabel, bonusCoins) {
-    this.state = 'RESULTS';
-    window.audioSys.stopEngine();
+  startRide(pax) {
+    const f = this.fare;
+    f.waiting.forEach((p) => this.life.group.remove(p.marker));
+    f.waiting = [];
+    f.active = pax;
+    f.state = 'ONBOARD';
+    f.timeLeft = pax.limit;
+    f.tip = 0;
 
-    const earnedCoins = this.player1.coinsCollected;
-    const totalAdded = earnedCoins + bonusCoins;
-    this.profile.coins += totalAdded;
+    f.destMarker = this.life.createDestinationMarker();
+    f.destMarker.position.set(pax.dest.x, 0.3, pax.dest.z);
+    this.life.group.add(f.destMarker);
 
-    const nextCareerBtn = document.getElementById('btn-next-career');
-    if (this.mode === 'career' && won) {
-      this.profile.careerStage++;
-      nextCareerBtn.classList.remove('hidden');
-    } else {
-      nextCareerBtn.classList.add('hidden');
-    }
+    window.audioSys.playCoin();
+    window.audioSys.speakCategory('pickup');
+    this.life.showEventBanner('🧑🏽', `ركب معاك ${pax.name}`, `الأجرة ${pax.fare} ج.م • الوقت ${Math.round(pax.limit)} ثانية • اتبع السهم الذهبي`);
+  }
+
+  completeRide() {
+    const f = this.fare;
+    const pax = f.active;
+    const timeBonus = Math.round(Math.max(0, f.timeLeft) * 1.2);
+    const tip = Math.round(f.tip);
+    const total = pax.fare + timeBonus + tip;
+
+    this.profile.coins += total;
+    this.profile.stats.fares++;
+    this.profile.stats.earned += total;
+    this.profile.stats.best = Math.max(this.profile.stats.best, total);
+    this.shiftEarned = (this.shiftEarned || 0) + total;
     this.saveProfile();
 
-    document.getElementById('results-icon').textContent = won ? '🏆' : '🛺';
-    document.getElementById('results-title').textContent = customTitle;
-    document.getElementById('results-subtitle').textContent = customSub;
-    document.getElementById('res-rank').textContent = rankLabel;
-    document.getElementById('res-coins').textContent = `+${earnedCoins} ج.م 💰`;
-    document.getElementById('res-bonus').textContent = `+${bonusCoins} ج.م 🎁`;
+    window.audioSys.playCoin();
+    window.audioSys.speakCategory('dropoff');
+    this.life.showEventBanner('💰', `+${total} ج.م`, `أجرة ${pax.fare} + وقت ${timeBonus} + إكرامية ${tip}`);
 
-    document.getElementById('results-screen').classList.remove('hidden');
+    this.life.group.remove(f.destMarker);
+    this.fare = this.newFareState();
+    this.fare.idleTimer = 1.6;
   }
 
+  failRide() {
+    const f = this.fare;
+    window.audioSys.speakCategory('timeout');
+    this.life.showEventBanner('😡', 'الراكب نزل غضبان!', 'الوقت خلص قبل ما توصّله');
+    this.life.group.remove(f.destMarker);
+    this.fare = this.newFareState();
+    this.fare.idleTimer = 2.0;
+  }
+
+  addTip(amount, label) {
+    this.fare.tip = Math.max(0, this.fare.tip + amount);
+    this.popup(label, amount >= 0 ? '#ffbe0b' : '#ff4d6d');
+  }
+
+  updateMission(dt) {
+    if (this.mode !== 'taxi') return;
+    const f = this.fare;
+    const p = this.player;
+    const spd = Math.abs(p.speed);
+
+    // Tip bonuses while a passenger is aboard
+    if (f.state === 'ONBOARD') {
+      if (p.yOffset > 0.4) this.airTime += dt;
+      else {
+        if (this.airTime > 0.55) this.addTip(12, '🚀 طيران! +12');
+        this.airTime = 0;
+      }
+      if (p.isDrifting) {
+        this.driftAcc += dt;
+        if (this.driftAcc >= 0.6) { this.driftAcc = 0; this.addTip(3, '💨 تخميس! +3'); }
+      } else this.driftAcc = 0;
+    }
+
+    if (f.state === 'IDLE') {
+      f.idleTimer -= dt;
+      if (f.idleTimer <= 0) this.spawnPassengers();
+    } else if (f.state === 'WAITING') {
+      f.waiting.forEach((pax, idx) => {
+        const m = pax.marker;
+        if (m.userData.update) {
+          m.userData.update(this.elapsed + idx);
+        } else if (m.userData.arm) {
+          m.userData.arm.rotation.z = Math.sin(this.elapsed * 7 + idx) * 0.8 - 0.4;
+        }
+        if (m.userData.ring) {
+          m.userData.ring.scale.setScalar(1 + Math.sin(this.elapsed * 4 + idx) * 0.08);
+        }
+        const d = this.dist2D(p.position.x, p.position.z, pax.x, pax.z);
+        if (d < 6.5 && spd < 20) this.startRide(pax);
+        else if (d < 22 && spd >= 20 && !pax.hinted) {
+          pax.hinted = true;
+          this.popup('🛑 هدّي السرعة عشان الراكب يركب', '#00f5d4');
+        }
+      });
+    } else if (f.state === 'ONBOARD') {
+      f.timeLeft -= dt;
+      f.destMarker.userData.gem.rotation.y += dt * 2.4;
+      const d = this.dist2D(p.position.x, p.position.z, f.active.dest.x, f.active.dest.z);
+      if (d < 7.5 && spd < 22) this.completeRide();
+      else if (f.timeLeft <= 0) this.failRide();
+    }
+  }
+
+  // ------------------------------------------------------------------- input
+  getInput() {
+    const k = this.keys, t = this.touchInput;
+    return {
+      gas: !!(k['KeyW'] || k['ArrowUp'] || t.gas || t.analogGas),
+      brake: !!(k['KeyS'] || k['ArrowDown'] || t.brake || t.analogBrake),
+      left: !!(k['KeyA'] || k['ArrowLeft'] || t.left),
+      right: !!(k['KeyD'] || k['ArrowRight'] || t.right),
+      steerAnalog: t.steerAnalog || 0,
+      drift: !!(k['Space'] || t.drift),
+      nitro: !!(k['ShiftLeft'] || k['ShiftRight'] || t.nitro)
+    };
+  }
+
+  // --------------------------------------------------------------------- GPS
+  createGpsArrow() {
+    const g = new THREE.Group();
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffbe0b });
+    const coneGeo = new THREE.ConeGeometry(0.75, 1.9, 4);
+    coneGeo.rotateX(Math.PI / 2);
+    const cone = new THREE.Mesh(coneGeo, mat);
+    cone.position.z = 0.9;
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.28, 1.3), mat);
+    tail.position.z = -0.5;
+    g.add(cone, tail);
+    g.visible = false;
+    this.scene.add(g);
+    return g;
+  }
+
+  currentTarget() {
+    const f = this.fare;
+    if (this.mode !== 'taxi') return null;
+    if (f.state === 'ONBOARD') return { x: f.active.dest.x, z: f.active.dest.z, color: 0xffbe0b, kind: 'dest' };
+    if (f.state === 'WAITING' && f.waiting.length) {
+      const p = this.player.position;
+      let best = f.waiting[0], bd = Infinity;
+      f.waiting.forEach((w) => {
+        const d = this.dist2D(p.x, p.z, w.x, w.z);
+        if (d < bd) { bd = d; best = w; }
+      });
+      return { x: best.x, z: best.z, color: best.color, kind: 'pax' };
+    }
+    return null;
+  }
+
+  updateArrow() {
+    const t = this.currentTarget();
+    if (!t || this.state !== 'PLAYING') { this.arrow.visible = false; return; }
+    const p = this.player;
+    this.arrow.visible = true;
+    this.arrow.children.forEach((c) => c.material.color.setHex(t.color));
+    this.arrow.position.set(p.position.x, p.yOffset + 5.4 + Math.sin(this.elapsed * 4) * 0.2, p.position.z);
+    this.arrow.rotation.y = Math.atan2(t.x - p.position.x, t.z - p.position.z);
+  }
+
+  // --------------------------------------------------------------------- HUD
   updateHUD() {
-    const speedKmh = Math.round(Math.abs(this.player1.speed) * 2.6);
-    document.getElementById('hud-speed').textContent = speedKmh;
-    document.getElementById('hud-nitro-bar').style.width = `${this.player1.nitro}%`;
-    document.getElementById('hud-fuel-bar').style.width = `${this.player1.fuel}%`;
-    document.getElementById('hud-coins').textContent = `${this.profile.coins + this.player1.coinsCollected} ج.م`;
+    const p = this.player;
+    const f = this.fare;
+    this.setText('hud-speed', String(Math.round(Math.abs(p.speed) * 2.6)));
+    document.getElementById('hud-nitro-bar').style.width = `${p.nitro}%`;
+    document.getElementById('hud-fuel-bar').style.width = `${p.fuel}%`;
+    this.setText('hud-coins', `${this.profile.coins} ج.م`);
+    document.getElementById('drift-Chain-badge').classList.toggle('hidden', !p.isDrifting);
 
-    const driftBadge = document.getElementById('drift-Chain-badge');
-    driftBadge.classList.toggle('hidden', !this.player1.isDrifting);
+    const rankLabel = document.querySelector('#hud-rank-box .stat-label');
+    const card = document.getElementById('fare-card');
 
-    // Format Timer
-    const mins = Math.floor(Math.abs(this.timer) / 60);
-    const secs = Math.floor(Math.abs(this.timer) % 60);
-    document.getElementById('hud-timer').textContent =
-      `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    if (this.mode === 'taxi') {
+      const target = this.currentTarget();
+      const dist = target ? Math.round(this.dist2D(p.position.x, p.position.z, target.x, target.z)) : 0;
+      if (rankLabel) rankLabel.textContent = 'الحالة';
+      this.setText('hud-position', f.state === 'ONBOARD' ? 'راكب معاك 🧑🏽' : f.state === 'WAITING' ? 'دوّر على راكب' : 'استنى شوية...');
+      this.setText('hud-lap-label', 'المسافة');
+      this.setText('hud-lap', target ? `${dist} م` : '--');
+      this.setText('hud-timer-label', 'وقت التوصيلة');
+      if (f.state === 'ONBOARD') {
+        const t = Math.max(0, f.timeLeft);
+        this.setText('hud-timer', `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}`);
+      } else this.setText('hud-timer', '--:--');
 
-    if (this.mode === 'delivery') {
-      document.getElementById('hud-lap-label').textContent = 'الطلبات';
-      document.getElementById('hud-lap').textContent = `${this.deliveriesMade} / ${this.deliveriesGoal}`;
-      document.getElementById('hud-position').textContent = 'دليفري 🍲';
-    } else if (this.mode === 'freeroam') {
-      document.getElementById('hud-lap-label').textContent = 'الوضع';
-      document.getElementById('hud-lap').textContent = 'تمشية حرة';
-      document.getElementById('hud-position').textContent = 'باشا 👑';
+      if (card) {
+        if (f.state === 'ONBOARD') {
+          card.classList.remove('hidden');
+          this.setText('fare-name', `🧑🏽 ${f.active.name}`);
+          this.setText('fare-money', `الأجرة ${f.active.fare} ج.م`);
+          this.setText('fare-tip', `إكرامية +${Math.round(f.tip)}`);
+        } else if (f.state === 'WAITING') {
+          card.classList.remove('hidden');
+          this.setText('fare-name', '🟢 قصير • 🟡 متوسط • 🔴 طويل');
+          this.setText('fare-money', `${f.waiting.length} راكب مستني`);
+          this.setText('fare-tip', 'اقف جنب العلامة');
+        } else card.classList.add('hidden');
+      }
     } else {
-      document.getElementById('hud-lap-label').textContent = 'اللفة';
-      document.getElementById('hud-lap').textContent = `${Math.min(this.player1.lap, this.totalLaps)} / ${this.totalLaps}`;
-
-      const activeRacers = this.allVehicles.filter(v => v.mesh.visible);
-      const sorted = [...activeRacers].sort((a, b) => b.totalProgress - a.totalProgress);
-      const rank = sorted.indexOf(this.player1) + 1;
-      document.getElementById('hud-position').textContent = `${rank} / ${activeRacers.length}`;
-
-      // Overtake voice line celebration!
-      if (rank < this.lastPlayerRank && this.timer > 3) {
-        window.audioSys.speakCategory('overtake');
-      }
-      this.lastPlayerRank = rank;
-
-      // Check race completion
-      if (this.player1.lap > this.totalLaps) {
-        const won = rank === 1;
-        const bonus = won ? 250 : Math.max(50, 200 - rank * 35);
-        this.finishRace(
-          won,
-          won ? 'مبروك يا باشا الحارة! كسبت السباق!' : 'فرقت على تكّة يا أسطى!',
-          won ? 'سواقة معلمين ما يغلبهاش ميكروباص ولا زحمة!' : 'شد حيلك في الجولة الجاية وروّق التوكتوك في الورشة!',
-          `المركز ${rank}`,
-          bonus
-        );
-      }
+      if (rankLabel) rankLabel.textContent = 'الوضع';
+      this.setText('hud-position', 'تمشية حرة 🌆');
+      this.setText('hud-lap-label', 'الجنيهات');
+      this.setText('hud-lap', `${this.profile.coins}`);
+      this.setText('hud-timer-label', 'الوقت');
+      this.setText('hud-timer', `${String(Math.floor(this.elapsed / 60) % 100).padStart(2, '0')}:${String(Math.floor(this.elapsed % 60)).padStart(2, '0')}`);
+      if (card) card.classList.add('hidden');
     }
   }
 
   drawMinimap() {
     const ctx = this.minimapCtx;
-    const w = this.minimapCanvas.width;
-    const h = this.minimapCanvas.height;
-    ctx.clearRect(0, 0, w, h);
+    const W = this.minimapCanvas.width, H = this.minimapCanvas.height;
+    const w = this.world;
+    const p = this.player;
+    const s = 0.52; // px per world unit
+    const cx = W / 2, cy = H * 0.58;
+    const h = p.heading;
+    const cosH = Math.cos(h), sinH = Math.sin(h);
 
-    // Map world bounds: x in [-40, 275], z in [-280, 240]
-    const mapX = (x) => ((x + 55) / 345) * (w - 24) + 12;
-    const mapY = (z) => ((z + 285) / 535) * (h - 24) + 12;
-
-    // Draw Track Loop
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-    ctx.lineWidth = 7;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.save();
     ctx.beginPath();
-    this.world.trackPoints.forEach((pt, idx) => {
-      const mx = mapX(pt.x);
-      const my = mapY(pt.z);
-      if (idx === 0) ctx.moveTo(mx, my);
-      else ctx.lineTo(mx, my);
+    ctx.arc(W / 2, H / 2, W / 2 - 2, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = '#141122';
+    ctx.fillRect(0, 0, W, H);
+
+    // world -> screen (forward is up)
+    const a = -s * cosH, c = s * sinH, b = -s * sinH, d = -s * cosH;
+    const e = cx - a * p.position.x - c * p.position.z;
+    const f = cy - b * p.position.x - d * p.position.z;
+    ctx.setTransform(a, b, c, d, e, f);
+
+    // Nile
+    ctx.fillStyle = '#1f77b4';
+    ctx.fillRect(-300, w.size + w.R / 2 + 2, w.size + 600, 700);
+
+    // plazas
+    w.plazas.forEach((pl) => {
+      ctx.fillStyle = pl.type === 'park' ? '#2f7d3a' : '#8c7a5b';
+      ctx.fillRect(pl.x - w.B / 2, pl.z - w.B / 2, w.B, w.B);
     });
-    ctx.closePath();
+
+    // roads
+    ctx.strokeStyle = '#6d6a7d';
+    ctx.lineWidth = w.R;
+    ctx.beginPath();
+    for (let k = 0; k <= w.N; k++) {
+      ctx.moveTo(0, k * w.C); ctx.lineTo(w.size, k * w.C);
+      ctx.moveTo(k * w.C, 0); ctx.lineTo(k * w.C, w.size);
+    }
     ctx.stroke();
 
-    // Draw Delivery Target if in Delivery mode
-    if (this.mode === 'delivery' && this.entities.deliveryTarget.visible) {
-      const dp = this.entities.deliveryTarget.position;
-      ctx.fillStyle = '#00f5d4';
+    // markers in world space (screen-clamped below)
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const toScreen = (x, z) => {
+      const dx = x - p.position.x, dz = z - p.position.z;
+      return { x: cx + a * dx + c * dz, y: cy + b * dx + d * dz };
+    };
+    const drawMarker = (x, z, color, r) => {
+      let pt = toScreen(x, z);
+      let vx = pt.x - W / 2, vy = pt.y - H / 2;
+      const lim = W / 2 - 9;
+      const len = Math.hypot(vx, vy);
+      if (len > lim) { vx = (vx / len) * lim; vy = (vy / len) * lim; }
+      ctx.fillStyle = color;
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(mapX(dp.x), mapY(dp.z), 6, 0, Math.PI * 2);
+      ctx.arc(W / 2 + vx, H / 2 + vy, r, 0, Math.PI * 2);
       ctx.fill();
+      ctx.stroke();
+    };
+
+    if (this.mode === 'taxi') {
+      const fs = this.fare;
+      fs.waiting.forEach((wp) => drawMarker(wp.x, wp.z, '#' + wp.color.toString(16).padStart(6, '0'), 6));
+      if (fs.state === 'ONBOARD') drawMarker(fs.active.dest.x, fs.active.dest.z, '#ffbe0b', 8);
     }
 
-    // Draw Rivals
-    this.rivals.forEach(r => {
-      if (!r.mesh.visible) return;
-      ctx.fillStyle = r.color;
-      ctx.beginPath();
-      ctx.arc(mapX(r.position.x), mapY(r.position.z), 4.2, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    // Draw Player 1
-    ctx.fillStyle = '#ffbe0b';
+    // player arrow (always centre, pointing up)
+    ctx.fillStyle = '#ffffff';
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(mapX(this.player1.position.x), mapY(this.player1.position.z), 5.8, 0, Math.PI * 2);
+    ctx.moveTo(cx, cy - 9);
+    ctx.lineTo(cx + 6, cy + 7);
+    ctx.lineTo(cx, cy + 3);
+    ctx.lineTo(cx - 6, cy + 7);
+    ctx.closePath();
     ctx.fill();
     ctx.stroke();
+    ctx.restore();
   }
 
-  updateFollowCamera(cam, vehicle, dt) {
+  // ------------------------------------------------------------------ camera
+  updateFollowCamera(dt) {
+    const v = this.player;
     const presets = [
-      { dist: 7.4, height: 3.15, lookAhead: 5.2 }, // Close Egyptian Tuk-Tuk Chase
-      { dist: 5.6, height: 2.45, lookAhead: 6.5 }, // Bumper / Hood Action Chase
-      { dist: 12.5, height: 6.2, lookAhead: 4.0 }  // High Street Panorama
+      { dist: 7.6, height: 3.4, lookAhead: 5.2 },
+      { dist: 5.8, height: 2.6, lookAhead: 6.5 },
+      { dist: 13.5, height: 7.0, lookAhead: 4.0 }
     ];
-    const p = presets[this.cameraMode];
-    const extraDist = vehicle.isNitro ? 1.8 : 0;
+    const pr = presets[this.cameraMode];
+    const extra = v.isNitro ? 1.8 : 0;
+    const dist = pr.dist + extra;
+    const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
+    const baseY = v.position.y + v.yOffset;
 
-    const targetX = vehicle.position.x - Math.sin(vehicle.heading) * (p.dist + extraDist);
-    const targetY = vehicle.position.y + vehicle.yOffset + p.height;
-    const targetZ = vehicle.position.z - Math.cos(vehicle.heading) * (p.dist + extraDist);
+    // pull the camera forward if a building would block the view
+    let t = 1;
+    for (; t > 0.28; t -= 0.12) {
+      const x = v.position.x - fx * dist * t;
+      const z = v.position.z - fz * dist * t;
+      if (!this.world.pointBlocked(x, z, 0.9)) break;
+    }
+    const tx = v.position.x - fx * dist * t;
+    const tz = v.position.z - fz * dist * t;
+    const ty = baseY + pr.height * (0.75 + 0.25 * t);
 
-    cam.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), Math.min(1, dt * 8.5));
+    this.camera.position.lerp(new THREE.Vector3(tx, ty, tz), Math.min(1, dt * 8.5));
+    this.camera.lookAt(
+      v.position.x + fx * pr.lookAhead,
+      baseY + 1.35,
+      v.position.z + fz * pr.lookAhead
+    );
 
-    const lookX = vehicle.position.x + Math.sin(vehicle.heading) * p.lookAhead;
-    const lookY = vehicle.position.y + vehicle.yOffset + 1.35;
-    const lookZ = vehicle.position.z + Math.cos(vehicle.heading) * p.lookAhead;
-    cam.lookAt(lookX, lookY, lookZ);
-
-    // Dynamic FOV boost when firing Nitro!
-    const targetFov = vehicle.isNitro ? 74 : 60;
-    cam.fov += (targetFov - cam.fov) * Math.min(1, dt * 6);
-    cam.updateProjectionMatrix();
+    const targetFov = v.isNitro ? 74 : 60;
+    this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * 6);
+    this.camera.updateProjectionMatrix();
   }
 
+  // --------------------------------------------------------------------- loop
   animate() {
     requestAnimationFrame(() => this.animate());
-
     const dt = Math.min(0.05, this.clock.getDelta());
     this.elapsed += dt;
 
     this.world.update(dt, this.elapsed);
 
+    this.visTimer -= dt;
+    if (this.visTimer <= 0) {
+      this.visTimer = 0.25;
+      this.world.updateVisibility(this.player.position.x, this.player.position.z);
+    }
+
     if (this.state === 'MENU' || this.state === 'GARAGE') {
-      // Showcase rotating camera around Player's Tuk-Tuk in Cairo street
+      // keep the city alive behind the menu
+      const pl = this.player;
+      this.life.updateLife(dt, this.elapsed, { position: new THREE.Vector3(-999, 0, -999), speed: 0, yOffset: 0, heading: 0, nitro: 0, fuel: 0, verticalVel: 0 }, null, { noEvents: true });
+
       const isGarage = this.state === 'GARAGE';
-      const radius = isGarage ? 4.8 : 6.8;
-      const height = isGarage ? 2.15 : 3.1;
-      const angle = this.elapsed * 0.75;
-      const camX = this.player1.position.x + Math.sin(angle) * radius;
-      const camZ = this.player1.position.z + Math.cos(angle) * radius;
-      this.camera1.position.set(camX, height, camZ);
-
-      // In Garage, shift lookAt slightly right so Tuk-Tuk sits in the open left viewport
+      const radius = isGarage ? 4.8 : 7.2;
+      const height = isGarage ? 2.15 : 3.3;
+      const angle = this.elapsed * 0.6;
+      this.camera.position.set(pl.position.x + Math.sin(angle) * radius, height, pl.position.z + Math.cos(angle) * radius);
       const rightOffset = isGarage ? 1.15 : 0;
-      const lookX = this.player1.position.x + Math.cos(angle) * rightOffset;
-      const lookZ = this.player1.position.z - Math.sin(angle) * rightOffset;
-      this.camera1.lookAt(lookX, 1.18, lookZ);
-
-      this.renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
-      this.renderer.setScissorTest(false);
-      this.renderer.render(this.scene, this.camera1);
+      this.camera.lookAt(
+        pl.position.x + Math.cos(angle) * rightOffset,
+        1.2,
+        pl.position.z - Math.sin(angle) * rightOffset
+      );
+      this.camera.fov = 60;
+      this.camera.updateProjectionMatrix();
+      this.renderer.render(this.scene, this.camera);
       return;
     }
 
-    if (this.state === 'PLAYING') {
-      // Timer update
-      if (this.mode === 'delivery') {
-        this.timer -= dt;
-        if (this.timer <= 0) {
-          this.finishRace(
-            false,
-            'الكشري برد يا أسطى! 🍲',
-            'الوقت خلص قبل ما تسلّم كل الطلبات للزباين!',
-            `${this.deliveriesMade} من ${this.deliveriesGoal} طلبات`,
-            this.deliveriesMade * 35
-          );
-          return;
-        }
-      } else {
-        this.timer += dt;
-      }
+    // ---- PLAYING ----
+    const p = this.player;
+    p.updatePhysics(dt, this.getInput(), this.world);
 
-      // Player 1 Physics
-      const p1Input = this.getPlayer1Input();
-      this.player1.updatePhysics(dt, p1Input, this.world);
-      window.audioSys.updateEngine(
-        this.player1.speed / this.player1.maxSpeed,
-        this.player1.isDrifting,
-        this.player1.isNitro
-      );
-
-      // Rivals or Player 2 Physics
-      if (this.mode === 'multiplayer') {
-        const p2Input = this.getPlayer2Input();
-        this.player2.updatePhysics(dt, p2Input, this.world);
-        if (this.player2.lap > this.totalLaps) {
-          this.finishRace(
-            false,
-            'لاعب ٢ (المعلم زغلول) كسب السباق! 🏆',
-            'تحدي عالمي بين صحاب الحارة!',
-            'فوز لاعب ٢',
-            150
-          );
-          return;
-        }
-      } else if (this.mode !== 'delivery' && this.mode !== 'freeroam') {
-        this.rivals.forEach(r => {
-          r.updateAI(dt, this.world, this.player1.totalProgress);
-        });
-      }
-
-      // Vehicle collisions & Street entities
-      this.handleVehicleCollisions();
-      this.entities.update(dt, this.elapsed, this.allVehicles, this.mode, () => {
-        // Delivery completed!
-        this.deliveriesMade++;
-        this.timer += 14; // Bonus time
+    this.life.updateLife(dt, this.elapsed, p, {
+      onCrash: (impact) => {
+        window.audioSys.playCrash();
+        if (this.fare.state === 'ONBOARD') this.addTip(-8, '💥 خبطة! -8');
+        if (Math.random() < 0.4) window.audioSys.speakCategory('crash');
+      },
+      onNearMiss: () => {
+        if (this.fare.state === 'ONBOARD') this.addTip(6, '😮 قريبة! +6');
+        else this.popup('😮 قريبة!', '#00f5d4');
+        if (Math.random() < 0.25) window.audioSys.speakCategory('nearmiss');
+      },
+      onPedHit: () => {
+        window.audioSys.playCrash();
+        if (this.fare.state === 'ONBOARD') this.addTip(-5, '🚶 أوبس! -5');
+        else this.popup('🚶 أوبس!', '#ff4d6d');
+        window.audioSys.speakCategory('pedestrian');
+      },
+      onPickup: (type) => {
         window.audioSys.playCoin();
-        window.audioSys.speakCategory('delivery');
-        this.entities.showEventBanner('🍲', 'تسلم إيدك يا أسطى!', '+١٤ ثانية وقت إضافي! اجري على الطلب اللي بعده!');
+        if (type === 'coin') {
+          this.profile.coins += 5;
+          this.popup('+5 ج.م', '#ffbe0b');
+        } else if (type === 'nitro') this.popup('🚀 نيترو متشحن!', '#00f5d4');
+        else this.popup('⛽ بنزين!', '#38e07b');
+      }
+    });
 
-        if (this.deliveriesMade >= this.deliveriesGoal) {
-          this.finishRace(
-            true,
-            'أسرع دليفري في مصر! 🍲🏆',
-            'وصلت كل طلبات الكشري والحواوشي سخنة مولعة في الميعاد!',
-            `${this.deliveriesGoal} / ${this.deliveriesGoal} طلبات`,
-            300
-          );
-        } else {
-          const info = this.world.getTrackInfo(this.player1.position);
-          this.entities.placeNextDeliveryZone(info.t);
-        }
-      });
-
-      this.updateHUD();
-      this.drawMinimap();
+    // building impacts
+    if (this.crashCooldown > 0) this.crashCooldown -= dt;
+    if (p.crashImpact > 9 && this.crashCooldown <= 0) {
+      this.crashCooldown = 0.6;
+      window.audioSys.playCrash();
+      if (this.fare.state === 'ONBOARD') this.addTip(-8, '🧱 خبطة في حيطة! -8');
+      if (Math.random() < 0.35) window.audioSys.speakCategory('crash');
     }
 
-    // Camera Follow & Render (Single vs Split-Screen 2-Player)
-    this.updateFollowCamera(this.camera1, this.player1, dt);
+    this.updateMission(dt);
+    window.audioSys.updateEngine(p.speed / p.maxSpeed, p.isDrifting, p.isNitro);
 
-    if (this.mode === 'multiplayer') {
-      this.updateFollowCamera(this.camera2, this.player2, dt);
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      const halfW = Math.floor(w * 0.5);
+    this.updateArrow();
+    this.updateHUD();
+    this.drawMinimap();
 
-      this.renderer.setScissorTest(true);
-
-      // Right half: Player 1
-      this.renderer.setViewport(halfW, 0, w - halfW, h);
-      this.renderer.setScissor(halfW, 0, w - halfW, h);
-      this.camera1.aspect = (w - halfW) / h;
-      this.camera1.updateProjectionMatrix();
-      this.renderer.render(this.scene, this.camera1);
-
-      // Left half: Player 2
-      this.renderer.setViewport(0, 0, halfW, h);
-      this.renderer.setScissor(0, 0, halfW, h);
-      this.camera2.aspect = halfW / h;
-      this.camera2.updateProjectionMatrix();
-      this.renderer.render(this.scene, this.camera2);
-    } else {
-      this.renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
-      this.renderer.setScissorTest(false);
-      this.renderer.render(this.scene, this.camera1);
-    }
+    this.updateFollowCamera(dt);
+    this.renderer.render(this.scene, this.camera);
   }
 }
 
