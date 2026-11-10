@@ -141,6 +141,7 @@ class CairoCity {
     this.geo = {
       lampPole: new THREE.CylinderGeometry(0.14, 0.2, 7, 8),
       lampBulb: new THREE.SphereGeometry(0.4, 8, 8),
+      lampPool: new THREE.PlaneGeometry(9, 9).rotateX(-Math.PI / 2),
       rope: new THREE.CylinderGeometry(0.04, 0.04, this.R + 2, 5),
       flag: new THREE.ConeGeometry(0.42, 0.95, 3),
       fanousTop: new THREE.ConeGeometry(0.6, 0.7, 6),
@@ -560,6 +561,12 @@ class CairoCity {
       const bulb = new THREE.Mesh(this.geo.lampBulb, this.mat.lampBulb);
       bulb.position.set(x, 7.1, z);
       chunk.group.add(pole, bulb);
+
+      // pool of light on the road under the lamp (only visible at dusk / night)
+      const pool = new THREE.Mesh(this.geo.lampPool, TTGfx.mat.lampPool());
+      pool.position.set(x + sx * 1.6, 0.06, z + sz * 1.6);
+      pool.userData.noAO = true;
+      chunk.group.add(pool);
     });
 
     // bunting + lantern across the road to the north and west of this block

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "artDirection": "photorealistic Middle-Eastern (Cairo) street, golden hour, slightly dusty, cinematic",
-  "note": "status 'pending' = not generated yet, the game uses a procedural placeholder. Set status to 'ready' once the file exists at `file`. Normal / roughness / AO maps are optional: when absent the game derives them from the albedo at load time.",
+  "note": "status 'pending' = not generated yet, the game uses a procedural placeholder. Set status to 'ready' once the file exists at `file`. Normal / roughness / AO maps are optional: list the ones that exist in an extraMaps array (for example [\"normal\", \"roughness\"]); the game derives the rest from the albedo at load time.",
   "assets": [
     {
       "id": "concept_tuktuk_front", "kind": "concept", "status": "pending",

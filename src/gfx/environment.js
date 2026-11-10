@@ -25,19 +25,19 @@ export const PRESETS = {
   },
   night: {
     elevation: 46, azimuth: -30,
-    sunColor: 0x8fa8ff, sunIntensity: 0.55,
+    sunColor: 0x8fa8ff, sunIntensity: 0.95,
     skyTop: 0x04050d, skyHorizon: 0x151a33, ground: 0x0b0b12,
     fog: 0x0d1024, fogDensity: 0.0036,
-    exposure: 1.15, env: 0.55, hemi: 0.35, wetness: 0.6, glow: 2.1, windows: 1.0,
+    exposure: 1.3, env: 0.85, hemi: 0.65, wetness: 0.6, glow: 2.1, windows: 1.0,
     bloom: 0.55, headlight: 1, night: true,
     grade: { tint: [0.94, 0.99, 1.08], contrast: 1.1, saturation: 0.95, vignette: 0.42 }
   },
   ramadan: {
     elevation: 34, azimuth: 120,
-    sunColor: 0xffc98a, sunIntensity: 0.7,
+    sunColor: 0xffc98a, sunIntensity: 1.0,
     skyTop: 0x0a0718, skyHorizon: 0x35204a, ground: 0x130d1c,
     fog: 0x24163a, fogDensity: 0.0032,
-    exposure: 1.18, env: 0.65, hemi: 0.4, wetness: 0.45, glow: 2.3, windows: 1.0,
+    exposure: 1.3, env: 0.9, hemi: 0.65, wetness: 0.45, glow: 2.3, windows: 1.0,
     bloom: 0.62, headlight: 1, night: true,
     grade: { tint: [1.05, 0.98, 1.02], contrast: 1.08, saturation: 1.1, vignette: 0.4 }
   }
@@ -201,6 +201,10 @@ export class Environment {
 
     this.windowMaterials.forEach((m) => { m.emissiveIntensity = p.windows * 1.6; });
     this.glowMaterials.forEach((m) => { m.color.setScalar(p.glow); });
+    if (this.lampPool) {
+      this.lampPool.opacity = p.windows * 0.16;
+      this.lampPool.visible = p.windows > 0.01;
+    }
 
     this.bakeEnvironment();
     if (mode === 'sunset') this.loadEquirect();

@@ -81,7 +81,7 @@ export class Materials {
   // Asphalt with world-space wet patches: lower roughness + darker albedo where
   // large-scale noise says a puddle has not dried yet.
   road(repeatX, repeatY) {
-    const m = this.ground('asphalt', repeatX, repeatY, { normalScale: new THREE.Vector2(0.9, 0.9) });
+    const m = this.ground('asphalt', repeatX, repeatY, { normalScale: new THREE.Vector2(0.5, 0.5) });
     const wetness = this.wetness;
     m.onBeforeCompile = (shader) => {
       shader.uniforms.uWetness = wetness;
@@ -110,6 +110,19 @@ export class Materials {
     m.customProgramCacheKey = () => 'tt-road-wet';
     this.roadMaterials.push(m);
     return m;
+  }
+
+  // Warm pool of light on the ground under a street lamp (additive, night only).
+  lampPool() {
+    if (!this._lampPool) {
+      this._lampPool = new THREE.MeshBasicMaterial({
+        map: this.textures.radial('rgba(255,255,255,1)', 'rgba(255,255,255,0)'),
+        color: 0xffc98a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
+        depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2
+      });
+      this._lampPool.visible = false;
+    }
+    return this._lampPool;
   }
 
   water() {

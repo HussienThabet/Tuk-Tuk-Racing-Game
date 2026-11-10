@@ -44,6 +44,7 @@ class Gfx {
     this.scene = scene;
     this.textures.anisotropy = Math.min(tier.anisotropy, renderer.capabilities.getMaxAnisotropy());
     this.env = new Environment(renderer, scene, tier, this.textures);
+    this.env.lampPool = this.mat.lampPool();
     this.blobTexture = this.textures.radial('rgba(0,0,0,1)', 'rgba(0,0,0,0)');
     document.body.classList.add('gfx-' + tier.name);
     return renderer;
@@ -163,7 +164,7 @@ class Gfx {
     p.fx.brakeMats.forEach((m) => {
       m.emissiveIntensity += (brakeTarget - m.emissiveIntensity) * (dt > 0 ? Math.min(1, dt * 18) : 1);
     });
-    if (this.headlight) this.headlight.intensity = preset.headlight * 260;
+    if (this.headlight) this.headlight.intensity = preset.headlight * 900;
   }
 
   // Dust, skid marks, contact shadow and lights for the player's tuk-tuk.
