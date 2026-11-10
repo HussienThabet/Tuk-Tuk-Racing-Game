@@ -4,6 +4,7 @@ class EgyptianAudioSystem {
   constructor() {
     this.ctx = null;
     this.musicEnabled = true;
+    this.paused = false;
     this.isPlayingMusic = false;
     this.musicTimer = null;
     this.beatStep = 0;
@@ -258,7 +259,7 @@ class EgyptianAudioSystem {
     const tablaPattern = ['D', 'T', '.', 'T', 'D', '.', 'T', 't'];
 
     this.musicTimer = setInterval(() => {
-      if (!this.musicEnabled || !this.ctx || this.ctx.state !== 'running') return;
+      if (this.paused || !this.musicEnabled || !this.ctx || this.ctx.state !== 'running') return;
       const now = this.ctx.currentTime;
       const step8 = this.beatStep % 8;
       const step32 = this.beatStep % 32;
@@ -332,6 +333,16 @@ class EgyptianAudioSystem {
     gain.connect(this.ctx.destination);
     osc.start(time);
     osc.stop(time + duration + 0.01);
+  }
+
+  setPaused(paused) {
+    this.paused = paused;
+    if (paused && 'speechSynthesis' in window) {
+      try { window.speechSynthesis.cancel(); } catch (e) {}
+    }
+    if (this.engineRunning && this.engineGain && this.ctx) {
+      this.engineGain.gain.setTargetAtTime(paused ? 0 : 0.042, this.ctx.currentTime, 0.05);
+    }
   }
 
   toggleMusic() {

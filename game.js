@@ -43,7 +43,7 @@ class TukTukBashaGame {
     this.arrow = this.createGpsArrow();
 
     // State
-    this.state = 'MENU'; // MENU | GARAGE | PLAYING
+    this.state = 'MENU'; // MENU | GARAGE | PLAYING | PAUSED
     this.mode = 'taxi';  // taxi | freeroam
     this.fare = this.newFareState();
     this.airTime = 0;
@@ -107,8 +107,14 @@ class TukTukBashaGame {
     });
 
     window.addEventListener('keydown', (e) => {
-      this.keys[e.code] = true;
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+      if (e.code === 'Escape') {
+        if (this.state === 'PLAYING') this.setPaused(true);
+        else if (this.state === 'PAUSED') this.setPaused(false);
+        return;
+      }
       if (this.state !== 'PLAYING') return;
+      this.keys[e.code] = true;
       if (e.code === 'KeyH') {
         window.audioSys.playHorn();
       } else if (e.code === 'KeyC') {
@@ -118,10 +124,7 @@ class TukTukBashaGame {
         document.getElementById('hud-music-btn').classList.toggle('active', on);
       } else if (e.code === 'KeyR') {
         this.respawnPlayer();
-      } else if (e.code === 'Escape') {
-        this.returnToMenu();
       }
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
 
@@ -210,7 +213,12 @@ class TukTukBashaGame {
       const on = window.audioSys.toggleMusic();
       document.getElementById('hud-music-btn').classList.toggle('active', on);
     });
-    document.getElementById('hud-pause-btn').addEventListener('click', () => this.returnToMenu());
+    document.getElementById('hud-pause-btn').addEventListener('click', () => {
+      if (this.state === 'PLAYING') this.setPaused(true);
+      else if (this.state === 'PAUSED') this.setPaused(false);
+    });
+    document.getElementById('btn-resume').addEventListener('click', () => this.setPaused(false));
+    document.getElementById('btn-pause-menu').addEventListener('click', () => this.returnToMenu());
 
     this.bindTouchControls();
   }
@@ -378,6 +386,8 @@ class TukTukBashaGame {
 
     document.getElementById('main-menu').classList.add('hidden');
     document.getElementById('results-screen').classList.add('hidden');
+    document.getElementById('pause-screen').classList.add('hidden');
+    document.getElementById('hud-pause-btn').textContent = '⏸️';
     document.getElementById('game-hud').classList.remove('hidden');
     document.getElementById('hud-slogan').textContent = this.profile.slogan;
 
@@ -393,13 +403,37 @@ class TukTukBashaGame {
     window.audioSys.speakCategory('start');
   }
 
+  setPaused(paused) {
+    const pauseScreen = document.getElementById('pause-screen');
+    const pauseBtn = document.getElementById('hud-pause-btn');
+    if (paused) {
+      if (this.state !== 'PLAYING') return;
+      this.state = 'PAUSED';
+      this.keys = {};
+      this.touchInput = { left: false, right: false, gas: false, brake: false, drift: false, nitro: false, steerAnalog: 0 };
+      pauseScreen.classList.remove('hidden');
+      if (pauseBtn) pauseBtn.textContent = '▶️';
+      window.audioSys.setPaused(true);
+    } else {
+      if (this.state !== 'PAUSED') return;
+      this.state = 'PLAYING';
+      pauseScreen.classList.add('hidden');
+      if (pauseBtn) pauseBtn.textContent = '⏸️';
+      window.audioSys.setPaused(false);
+      this.clock.getDelta();
+    }
+  }
+
   returnToMenu() {
     this.clearFare();
     this.saveProfile();
     this.state = 'MENU';
+    window.audioSys.setPaused(false);
     window.audioSys.stopEngine();
     document.getElementById('game-hud').classList.add('hidden');
     document.getElementById('results-screen').classList.add('hidden');
+    document.getElementById('pause-screen').classList.add('hidden');
+    document.getElementById('hud-pause-btn').textContent = '⏸️';
     document.getElementById('main-menu').classList.remove('hidden');
     this.updateMenuUI();
   }
@@ -815,6 +849,10 @@ class TukTukBashaGame {
   animate() {
     requestAnimationFrame(() => this.animate());
     const dt = Math.min(0.05, this.clock.getDelta());
+    if (this.state === 'PAUSED') {
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
     this.elapsed += dt;
 
     this.world.update(dt, this.elapsed);

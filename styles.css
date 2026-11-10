@@ -1084,6 +1084,20 @@ kbd {
   gap: 10px;
 }
 
+.pause-modal {
+  width: min(460px, 94vw);
+}
+
+.pause-modal p {
+  margin: 8px 0 18px;
+  color: #e2dfee;
+  font-weight: 700;
+}
+
+.pause-modal .results-actions {
+  flex-wrap: wrap;
+}
+
 /* ---------- Open-world taxi HUD: fare card + tip popups ---------- */
 .fare-card {
   position: fixed;
