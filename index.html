@@ -19,12 +19,24 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&family=Tajawal:wght@500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css" />
-  <!-- Three.js CDN -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Three.js r170 is vendored (no build step, works on GitHub Pages) -->
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three/three.module.min.js", "three/addons/": "./vendor/three/addons/" } }
+  </script>
+  <link rel="modulepreload" href="vendor/three/three.module.min.js" />
 </head>
 <body>
   <!-- 3D Canvas Container -->
   <div id="canvas-container"></div>
+
+  <!-- Boot loader: shown while the engine, assets and city are prepared -->
+  <div id="boot-loader" role="status" aria-live="polite">
+    <div class="boot-box">
+      <div class="boot-title">🛺 توكتوك باشا</div>
+      <div class="boot-track"><div id="boot-bar"></div></div>
+      <div id="boot-text">جاري تحميل المحرك...</div>
+    </div>
+  </div>
 
   <!-- MAIN MENU OVERLAY -->
   <div id="main-menu" class="screen-overlay active">
@@ -69,6 +81,13 @@
               <button class="env-btn active" data-env="day">☀️ نهار شبرا</button>
               <button class="env-btn" data-env="sunset">🌇 غروب إمبابة</button>
               <button class="env-btn" data-env="night">🌃 سهرة السيدة</button>
+            </div>
+            <h3 class="quality-title">🎚️ جودة الرسوم <small id="quality-current"></small></h3>
+            <div class="quality-selector">
+              <button class="quality-btn" data-quality="auto" type="button">تلقائي</button>
+              <button class="quality-btn" data-quality="low" type="button">منخفضة</button>
+              <button class="quality-btn" data-quality="medium" type="button">متوسطة</button>
+              <button class="quality-btn" data-quality="high" type="button">عالية</button>
             </div>
           </div>
 
@@ -364,11 +383,7 @@
     </div>
   </div>
 
-  <script src="audio.js"></script>
-  <script src="people.js"></script>
-  <script src="city.js"></script>
-  <script src="entities.js"></script>
-  <script src="citylife.js"></script>
-  <script src="game.js"></script>
+  <!-- boot.js loads Three.js + the graphics layer, then the game scripts in order -->
+  <script type="module" src="src/boot.js"></script>
 </body>
 </html>
