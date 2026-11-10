@@ -23,6 +23,7 @@ class CityLife extends StreetEntitiesManager {
     const spawn = { x: 4 * w.C, z: 4 * w.C };
     for (let n = 0; n < count; n++) {
       const built = n % 2 === 0 ? this.buildDetailedMicrobus(n) : this.buildDetailedCairoTaxi(n);
+      TTGfx.batchRig(built.vGroup, { pivots: built.wheels, shadowBlob: n % 2 === 0 ? [2.9, 5.6] : [2.6, 5.0] });
       this.group.add(built.vGroup);
 
       const car = {
@@ -182,8 +183,8 @@ class CityLife extends StreetEntitiesManager {
       body: new THREE.CylinderGeometry(0.3, 0.36, 1.0, 8),
       head: new THREE.SphereGeometry(0.27, 8, 8)
     };
-    this.pedMats = shirts.map((c) => new THREE.MeshLambertMaterial({ color: c }));
-    this.pedSkin = new THREE.MeshLambertMaterial({ color: 0xd49a6a });
+    this.pedMats = shirts.map((c) => TTGfx.lit({ color: c }));
+    this.pedSkin = TTGfx.lit({ color: 0xd49a6a });
 
     for (let n = 0; n < count; n++) {
       let charObj = null;
@@ -199,6 +200,7 @@ class CityLife extends StreetEntitiesManager {
         head.position.y = 1.7;
         g.add(body, head);
       }
+      TTGfx.batchRig(g, { shadowBlob: [0.95, 0.95] });
       this.group.add(g);
 
       const ped = {
@@ -373,7 +375,7 @@ class CityLife extends StreetEntitiesManager {
     const g = new THREE.Group();
     for (let c = -2; c <= 2; c++) {
       const chick = new THREE.Group();
-      const body = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 8), new THREE.MeshLambertMaterial({ color: 0xffffff }));
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 8), TTGfx.lit({ color: 0xffffff }));
       body.position.y = 0.6;
       const comb = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.35, 0.35), new THREE.MeshBasicMaterial({ color: 0xe6192e }));
       comb.position.set(0, 1.15, 0.2);
@@ -390,7 +392,7 @@ class CityLife extends StreetEntitiesManager {
   buildWatermelons() {
     const g = new THREE.Group();
     for (let w = -2; w <= 2; w++) {
-      const melon = new THREE.Mesh(new THREE.SphereGeometry(0.75, 10, 10), new THREE.MeshLambertMaterial({ color: 0x2b9348 }));
+      const melon = new THREE.Mesh(new THREE.SphereGeometry(0.75, 10, 10), TTGfx.lit({ color: 0x2b9348 }));
       melon.position.set(w * 2.1, 0.75, (Math.random() - 0.5) * 2.0);
       g.add(melon);
     }
@@ -497,11 +499,11 @@ class CityLife extends StreetEntitiesManager {
     const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide }));
     ring.position.y = 0.45;
 
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 1.1, 8), new THREE.MeshLambertMaterial({ color: 0xfff3b0 }));
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 1.1, 8), TTGfx.lit({ color: 0xfff3b0 }));
     body.position.y = 0.95;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), new THREE.MeshLambertMaterial({ color: 0xd49a6a }));
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), TTGfx.lit({ color: 0xd49a6a }));
     head.position.y = 1.78;
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.9, 0.14), new THREE.MeshLambertMaterial({ color: 0xfff3b0 }));
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.9, 0.14), TTGfx.lit({ color: 0xfff3b0 }));
     arm.position.set(0.45, 2.0, 0);
     g.add(beam, ring, body, head, arm);
     g.userData.arm = arm;

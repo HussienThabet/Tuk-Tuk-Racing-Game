@@ -52,6 +52,10 @@ class TukTukVehicle {
     this.paintMeshes = [];
     this.sloganMesh = null;
 
+    // Hooks for the graphics layer (lamp materials) and suspension spring state
+    this.fx = { headMat: null, brakeMats: [] };
+    this.susp = { y: 0, vy: 0, pitch: 0, vPitch: 0, roll: 0, vRoll: 0, lastSpeed: 0, airVel: 0, wasAir: false };
+
     this.buildTukTukModel();
     this.scene.add(this.mesh);
   }
@@ -161,15 +165,21 @@ class TukTukVehicle {
   }
 
   buildTukTukModel() {
-    const paintMat = new THREE.MeshLambertMaterial({ color: this.color });
-    const blackBodyMat = new THREE.MeshLambertMaterial({ color: 0x181820 });
-    const tireMat = new THREE.MeshLambertMaterial({ color: 0x141419 });
-    const chromeMat = new THREE.MeshLambertMaterial({ color: 0xe8eef2 });
-    const goldMat = new THREE.MeshBasicMaterial({ color: 0xffbe0b });
-    const hoodMat = new THREE.MeshLambertMaterial({ color: 0x1e192b });
-    const seatMat = new THREE.MeshLambertMaterial({ color: 0x6f1d1b });
-    const cyanLedMat = new THREE.MeshBasicMaterial({ color: 0x00f5d4 });
-    const pinkLedMat = new THREE.MeshBasicMaterial({ color: 0xff006e });
+    // PBR material set: clearcoat body paint, rough rubber, metallic trim, emissive lamps
+    const M = TTGfx.mat;
+    const paintMat = M.paint(this.color);
+    const blackBodyMat = M.lit({ color: 0x181820, roughness: 0.6, metalness: 0.3 });
+    const tireMat = M.rubber(0x101014);
+    const chromeMat = M.chrome(0xe8eef2);
+    const goldMat = M.lit({ color: 0xe0a312, roughness: 0.3, metalness: 1, emissive: 0xffbe0b, emissiveIntensity: 0.35 });
+    const hoodMat = M.canvasRoof(0x1e192b);
+    const seatMat = M.vinyl(0x6f1d1b);
+    const cyanLedMat = M.glow(0x00f5d4, 2.4);
+    const pinkLedMat = M.glow(0xff006e, 2.4);
+    const amberMat = M.glow(0xff9f1c, 1.6);
+    const brakeMat = M.glow(0xff1020, 0.8);
+    this.fx.headMat = M.glow(0xfff1cf, 2.0);
+    this.fx.brakeMats.push(brakeMat);
 
     this.frontForkGroup = new THREE.Group();
     this.frontForkGroup.position.set(0, 0, 1.38);
@@ -212,7 +222,7 @@ class TukTukVehicle {
 
     const lampGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.24, 16);
     lampGeo.rotateX(Math.PI / 2);
-    const lamp = new THREE.Mesh(lampGeo, new THREE.MeshBasicMaterial({ color: 0xffffdd }));
+    const lamp = new THREE.Mesh(lampGeo, this.fx.headMat);
     lamp.position.set(0, -0.05, 0.65);
     apronGroup.add(bezel, lamp);
 
@@ -220,7 +230,7 @@ class TukTukVehicle {
     [-0.48, 0.48].forEach(bx => {
       const blinker = new THREE.Mesh(
         new THREE.SphereGeometry(0.11, 10, 10),
-        new THREE.MeshBasicMaterial({ color: 0xff9f1c })
+        amberMat
       );
       blinker.position.set(bx, -0.08, 0.46);
       apronGroup.add(blinker);
@@ -256,10 +266,13 @@ class TukTukVehicle {
     // Tinted Glass Pane
     const glass = new THREE.Mesh(
       new THREE.PlaneGeometry(1.26, 0.86),
-      new THREE.MeshBasicMaterial({
-        color: 0xa8f0ff,
+      M.lit({
+        color: 0xbfe9f2,
         transparent: true,
-        opacity: 0.48,
+        opacity: 0.32,
+        roughness: 0.04,
+        metalness: 0.2,
+        envMapIntensity: 1.6,
         side: THREE.DoubleSide
       })
     );
@@ -329,17 +342,17 @@ class TukTukVehicle {
     } else {
       const driverTorso = new THREE.Mesh(
         new THREE.CylinderGeometry(0.26, 0.31, 0.78, 10),
-        new THREE.MeshLambertMaterial({ color: 0x00b4d8 })
+        TTGfx.lit({ color: 0x00b4d8 })
       );
       driverTorso.position.set(0, 1.22, 0.42);
       const driverHead = new THREE.Mesh(
         new THREE.SphereGeometry(0.23, 12, 12),
-        new THREE.MeshLambertMaterial({ color: 0xd49a6a })
+        TTGfx.lit({ color: 0xd49a6a })
       );
       driverHead.position.set(0, 1.78, 0.42);
       const cap = new THREE.Mesh(
         new THREE.CylinderGeometry(0.235, 0.24, 0.14, 12),
-        new THREE.MeshLambertMaterial({ color: 0xffffff })
+        TTGfx.lit({ color: 0xffffff })
       );
       cap.position.set(0, 1.9, 0.42);
       this.bodyTiltGroup.add(driverTorso, driverHead, cap);
@@ -385,7 +398,7 @@ class TukTukVehicle {
       const curtainGeo = new THREE.PlaneGeometry(0.85, 0.65);
       const curtain = new THREE.Mesh(
         curtainGeo,
-        new THREE.MeshLambertMaterial({ color: 0x1e192b, side: THREE.DoubleSide })
+        M.canvasRoof(0x1e192b, { side: THREE.DoubleSide })
       );
       curtain.rotation.y = Math.PI / 2;
       curtain.position.set(side * 0.92, 1.88, -0.78);
@@ -483,12 +496,12 @@ class TukTukVehicle {
     [-0.78, 0.78].forEach(tx => {
       const stopLight = new THREE.Mesh(
         new THREE.BoxGeometry(0.22, 0.14, 0.08),
-        new THREE.MeshBasicMaterial({ color: 0xff0033 })
+        brakeMat
       );
       stopLight.position.set(tx, 0.66, -1.36);
       const turnLight = new THREE.Mesh(
         new THREE.BoxGeometry(0.14, 0.14, 0.08),
-        new THREE.MeshBasicMaterial({ color: 0xff9f1c })
+        amberMat
       );
       turnLight.position.set(tx * 1.12, 0.66, -1.36);
       this.bodyTiltGroup.add(stopLight, turnLight);
@@ -516,9 +529,14 @@ class TukTukVehicle {
     // =========================================================================
     // 8. STEERABLE FRONT WHEEL + MUDGUARD + EAGLE ORNAMENT & TWO REAR WHEELS
     // =========================================================================
-    const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.24, 16);
+    // Tyre with a rounded shoulder profile (lathe) and a wider steel rim
+    const tyreProfile = [
+      [0.235, -0.12], [0.33, -0.125], [0.366, -0.09], [0.38, -0.04],
+      [0.38, 0.04], [0.366, 0.09], [0.33, 0.125], [0.235, 0.12]
+    ].map(([r, y]) => new THREE.Vector2(r, y));
+    const wheelGeo = new THREE.LatheGeometry(tyreProfile, 28);
     wheelGeo.rotateZ(Math.PI / 2);
-    const rimGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.26, 12);
+    const rimGeo = new THREE.CylinderGeometry(0.245, 0.245, 0.2, 20);
     rimGeo.rotateZ(Math.PI / 2);
     const capGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.28, 8);
     capGeo.rotateZ(Math.PI / 2);
@@ -594,6 +612,12 @@ class TukTukVehicle {
       flame.visible = false;
       this.bodyTiltGroup.add(flame);
       this.nitroFlames.push(flame);
+    });
+
+    // Collapse the ~150 small parts into a handful of draw calls per moving group
+    TTGfx.batchRig(this.mesh, {
+      pivots: [this.bodyTiltGroup, this.frontForkGroup, this.handlebarGroup, this.driverGroup, ...this.wheels],
+      keepGroupsUnder: this.driverGroup
     });
   }
 
@@ -827,11 +851,39 @@ class TukTukVehicle {
       this.handlebarGroup.rotation.y += (targetSteerAngle - this.handlebarGroup.rotation.y) * Math.min(1, dt * 12);
     }
 
-    // Fun comedic Tuk-Tuk body lean on turns (رفع عجلة على السوكة!)
-    const targetRoll = -steerDir * Math.min(0.28, Math.abs(this.speed) * 0.0065);
-    const targetPitch = this.isNitro ? -0.09 : (this.yOffset > 0.1 ? -0.14 : 0);
-    this.bodyTiltGroup.rotation.z += (targetRoll - this.bodyTiltGroup.rotation.z) * Math.min(1, dt * 10);
-    this.bodyTiltGroup.rotation.x += (targetPitch - this.bodyTiltGroup.rotation.x) * Math.min(1, dt * 10);
+    // Suspension: body roll, pitch (squat / dive) and heave on damped springs
+    const sp = this.susp;
+    const h = Math.min(0.033, Math.max(0, dt));
+    const grounded = this.yOffset <= 0.01;
+    const accel = h > 0 ? (this.speed - sp.lastSpeed) / h : 0;
+    sp.lastSpeed = this.speed;
+
+    const targetRoll = Math.max(-0.27, Math.min(0.27,
+      -steerDir * Math.min(0.2, Math.abs(this.speed) * 0.0055) - this.driftAngle * 0.16));
+    // negative pitch lifts the nose (acceleration, nitro, air), positive dives it (braking)
+    let targetPitch = Math.max(-0.1, Math.min(0.13, -accel * 0.0042));
+    if (this.isNitro) targetPitch -= 0.05;
+    if (!grounded) targetPitch = -0.14;
+
+    if (!grounded) {
+      sp.airVel = this.verticalVel;
+      sp.wasAir = true;
+    } else if (sp.wasAir) {
+      sp.vy += Math.max(-3.4, sp.airVel * 0.24); // landing compresses the springs
+      sp.wasAir = false;
+    }
+    if (grounded) sp.vy += (Math.random() - 0.5) * Math.abs(this.speed) * 0.85 * h; // road buzz
+
+    sp.vRoll += ((targetRoll - sp.roll) * 95 - sp.vRoll * 11) * h;
+    sp.roll += sp.vRoll * h;
+    sp.vPitch += ((targetPitch - sp.pitch) * 80 - sp.vPitch * 10) * h;
+    sp.pitch += sp.vPitch * h;
+    sp.vy += (-sp.y * 150 - sp.vy * 13) * h;
+    sp.y = Math.max(-0.16, Math.min(0.2, sp.y + sp.vy * h));
+
+    this.bodyTiltGroup.rotation.z = sp.roll;
+    this.bodyTiltGroup.rotation.x = sp.pitch;
+    this.bodyTiltGroup.position.y = sp.y;
 
     // Realistic driver dynamic steering & posture reaction
     if (this.driverGroup && this.driverGroup.userData && this.driverGroup.userData.updateDriver) {
@@ -841,7 +893,8 @@ class TukTukVehicle {
 
     // Spin wheels
     this.wheels.forEach(w => {
-      w.rotation.x += this.speed * dt * 1.6;
+      // true rolling speed (radius 0.38), capped so the wheel does not strobe at 60 fps
+      w.rotation.x += Math.max(-40, Math.min(40, this.speed / 0.38)) * dt;
     });
 
     // Nitro flames
@@ -909,13 +962,14 @@ class StreetEntitiesManager {
     const wheels = [];
 
     const lowerColors = [0x0077b6, 0x0096c7, 0x1d3557];
-    const stripeMat = new THREE.MeshLambertMaterial({ color: lowerColors[index % lowerColors.length] });
-    const whiteMat = new THREE.MeshLambertMaterial({ color: 0xf8f9fa });
-    const darkMat = new THREE.MeshLambertMaterial({ color: 0x181a20 });
-    const chromeMat = new THREE.MeshLambertMaterial({ color: 0xd8e2dc });
-    const glassMat = new THREE.MeshBasicMaterial({ color: 0x223843 });
-    const headLightMat = new THREE.MeshBasicMaterial({ color: 0xffffcc });
-    const tailLightMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
+    const M = TTGfx.mat;
+    const stripeMat = M.lit({ color: lowerColors[index % lowerColors.length], roughness: 0.36, metalness: 0.3 });
+    const whiteMat = M.lit({ color: 0xf8f9fa, roughness: 0.36, metalness: 0.3 });
+    const darkMat = M.lit({ color: 0x181a20, roughness: 0.9 });
+    const chromeMat = M.lit({ color: 0xd8e2dc, roughness: 0.18, metalness: 1 });
+    const glassMat = M.shared('carGlass', () => M.glass(0x1b2a33));
+    const headLightMat = M.shared('carHead', () => M.glow(0xfff4cc, 1.8));
+    const tailLightMat = M.shared('carTail', () => M.glow(0xff1020, 1.4));
 
     // 1. Lower Blue Body & Upper White Cabin
     const lowerBody = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.92, 4.9), stripeMat);
@@ -1009,14 +1063,15 @@ class StreetEntitiesManager {
     const wheels = [];
 
     const isWhiteTaxi = index % 3 === 0;
-    const bodyMat = new THREE.MeshLambertMaterial({ color: isWhiteTaxi ? 0xf8f9fa : 0x16181d });
-    const cabinMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    const stripeMat = new THREE.MeshLambertMaterial({ color: isWhiteTaxi ? 0x16181d : 0xffffff });
-    const darkMat = new THREE.MeshLambertMaterial({ color: 0x141419 });
-    const chromeMat = new THREE.MeshLambertMaterial({ color: 0xd8e2dc });
-    const glassMat = new THREE.MeshBasicMaterial({ color: 0x264653 });
-    const headLightMat = new THREE.MeshBasicMaterial({ color: 0xffffcc });
-    const tailLightMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
+    const M = TTGfx.mat;
+    const bodyMat = M.lit({ color: isWhiteTaxi ? 0xf8f9fa : 0x16181d, roughness: 0.36, metalness: 0.3 });
+    const cabinMat = M.lit({ color: 0xffffff, roughness: 0.36, metalness: 0.3 });
+    const stripeMat = M.lit({ color: isWhiteTaxi ? 0x16181d : 0xffffff, roughness: 0.36, metalness: 0.3 });
+    const darkMat = M.lit({ color: 0x141419, roughness: 0.9 });
+    const chromeMat = M.lit({ color: 0xd8e2dc, roughness: 0.18, metalness: 1 });
+    const glassMat = M.shared('carGlass', () => M.glass(0x1b2a33));
+    const headLightMat = M.shared('carHead', () => M.glow(0xfff4cc, 1.8));
+    const tailLightMat = M.shared('carTail', () => M.glow(0xff1020, 1.4));
 
     // 1. Sedan Lower Chassis (Hood, Doors, Trunk)
     const lowerBody = new THREE.Mesh(new THREE.BoxGeometry(2.12, 0.78, 4.35), bodyMat);
@@ -1211,7 +1266,7 @@ class StreetEntitiesManager {
         const chick = new THREE.Group();
         const body = new THREE.Mesh(
           new THREE.SphereGeometry(0.55, 8, 8),
-          new THREE.MeshLambertMaterial({ color: 0xffffff })
+          TTGfx.lit({ color: 0xffffff })
         );
         body.position.y = 0.6;
         const comb = new THREE.Mesh(
@@ -1248,7 +1303,7 @@ class StreetEntitiesManager {
       for (let w = -2; w <= 2; w++) {
         const melon = new THREE.Mesh(
           new THREE.SphereGeometry(0.75, 10, 10),
-          new THREE.MeshLambertMaterial({ color: 0x2b9348 })
+          TTGfx.lit({ color: 0x2b9348 })
         );
         melon.position.set(w * 2.1, 0.75, (Math.random() - 0.5) * 2.0);
         eventGroup.add(melon);

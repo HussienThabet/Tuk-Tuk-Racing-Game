@@ -42,6 +42,8 @@ class CairoCity {
     this.buildRoadHazards();
     this.buildNile();
     this.buildSkyline();
+    // Graphics layer: adopts the lights, then batches the static city into few draw calls
+    TTGfx.setupCity(this);
     this.setEnvironment('day');
   }
 
@@ -100,32 +102,21 @@ class CairoCity {
       this.dirLight.intensity = 0.82;
       this.decorOn = true;
     }
+    // Sky, image-based lighting, sun, fog and exposure are owned by the graphics layer
+    TTGfx.applyEnvironment(mode);
     this.updateVisibility(this._lastX || 0, this._lastZ || 0, true);
   }
 
   // ----------------------------------------------------------- shared assets
   initSharedResources() {
     this.facade = this.createBuildingMaterials();
-    this.roofMat = new THREE.MeshLambertMaterial({ color: 0x3d3846 });
-    this.concreteMat = new THREE.MeshLambertMaterial({ color: 0xc2bdb6 });
-    this.darkMat = new THREE.MeshLambertMaterial({ color: 0x22223b });
-    this.ironMat = new THREE.MeshLambertMaterial({ color: 0x1f2421 });
+    this.roofMat = TTGfx.lit({ color: 0x3d3846, roughness: 0.95 });
+    this.concreteMat = TTGfx.lit({ color: 0xc2bdb6, roughness: 0.92 });
+    this.darkMat = TTGfx.lit({ color: 0x22223b });
+    this.ironMat = TTGfx.mat.metal(0x1f2421, 0.6);
 
-    // Sidewalk texture (tiled, shared by all block slabs)
-    const sw = document.createElement('canvas');
-    sw.width = sw.height = 128;
-    const sctx = sw.getContext('2d');
-    sctx.fillStyle = '#8a8290';
-    sctx.fillRect(0, 0, 128, 128);
-    sctx.strokeStyle = '#5d5666';
-    sctx.lineWidth = 3;
-    sctx.strokeRect(0, 0, 128, 128);
-    sctx.strokeRect(0, 0, 64, 64);
-    sctx.strokeRect(64, 64, 64, 64);
-    this.sidewalkTex = new THREE.CanvasTexture(sw);
-    this.sidewalkTex.wrapS = this.sidewalkTex.wrapT = THREE.RepeatWrapping;
-    this.sidewalkTex.repeat.set(7, 7);
-    this.sidewalkMat = new THREE.MeshLambertMaterial({ map: this.sidewalkTex });
+    // Sidewalk pavers (PBR set, shared by all block slabs)
+    this.sidewalkMat = TTGfx.mat.ground('sidewalk', 7, 7);
 
     // Shop signs (shared)
     this.shops = [
@@ -143,6 +134,8 @@ class CairoCity {
     this.signMats = this.shops.map((s) => new THREE.MeshBasicMaterial({
       map: this.createArabicSignTexture(s.title, s.bg, s.fg, s.sub)
     }));
+    // shop signs are back-lit: they brighten (and bloom) at night
+    TTGfx.env.glowMaterials.push(...this.signMats);
 
     // Shared geometries for repeated props
     this.geo = {
@@ -156,12 +149,12 @@ class CairoCity {
       palmLeaf: new THREE.ConeGeometry(0.4, 3.2, 4)
     };
     this.mat = {
-      lampPole: new THREE.MeshLambertMaterial({ color: 0x2b2d42 }),
+      lampPole: TTGfx.mat.metal(0x2b2d42, 0.55),
       lampBulb: new THREE.MeshBasicMaterial({ color: 0xffe169 }),
       rope: new THREE.MeshBasicMaterial({ color: 0xdddddd }),
       gold: new THREE.MeshBasicMaterial({ color: 0xffbe0b }),
-      trunk: new THREE.MeshLambertMaterial({ color: 0x7a5230 }),
-      leaf: new THREE.MeshLambertMaterial({ color: 0x2d8a3e })
+      trunk: TTGfx.lit({ color: 0x7a5230 }),
+      leaf: TTGfx.lit({ color: 0x2d8a3e })
     };
     this.flagMats = [0xe6192e, 0xffbe0b, 0x00f5d4, 0xff006e, 0x38b000].map(
       (c) => new THREE.MeshBasicMaterial({ color: c })
@@ -212,6 +205,14 @@ class CairoCity {
       ctx.fillStyle = pal.bg;
       ctx.fillRect(0, 0, 512, 512);
 
+      // emissive mask: only the lit windows glow at night
+      const glowCanvas = document.createElement('canvas');
+      glowCanvas.width = glowCanvas.height = 512;
+      const gctx = glowCanvas.getContext('2d');
+      gctx.fillStyle = '#000000';
+      gctx.fillRect(0, 0, 512, 512);
+      gctx.fillStyle = '#ffffff';
+
       if (pal.brick) {
         for (let y = 0; y < 512; y += 12) {
           ctx.fillStyle = 'rgba(35, 12, 8, 0.42)';
@@ -251,6 +252,7 @@ class CairoCity {
           ctx.fillRect(wx, wy, ww, wh);
           ctx.fillStyle = (f + wIdx) % 2 === 0 ? '#ffd166' : '#1d2d44';
           ctx.fillRect(wx + 4, wy + 4, ww - 8, wh - 8);
+          if ((f + wIdx) % 2 === 0) gctx.fillRect(wx + 4, wy + 4, ww - 8, wh - 8);
           ctx.fillStyle = pal.sill;
           ctx.fillRect(wx + ww / 2 - 2, wy, 4, wh);
           ctx.fillRect(wx, wy + wh / 2 - 2, ww, 4);
@@ -268,69 +270,107 @@ class CairoCity {
       const tex = new THREE.CanvasTexture(canvas);
       tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
       tex.needsUpdate = true;
-      return { wallMat: new THREE.MeshLambertMaterial({ map: tex }), shutter: pal.shutter };
+      const glowTex = new THREE.CanvasTexture(glowCanvas);
+      glowTex.wrapS = glowTex.wrapT = THREE.RepeatWrapping;
+      const wallMat = TTGfx.lit({
+        map: tex, roughness: pal.brick ? 0.93 : 0.88,
+        emissiveMap: glowTex, emissive: 0xffc878, emissiveIntensity: 0
+      });
+      TTGfx.env.windowMaterials.push(wallMat);
+      return { wallMat, shutter: pal.shutter };
     });
   }
 
   // ------------------------------------------------------------------ ground
   buildGround() {
-    // Dusty base under everything
+    const C = this.C;
+    const shadows = TTGfx.tier.shadows;
+
+    // Dusty sand under and around the district
     const base = new THREE.Mesh(
       new THREE.PlaneGeometry(2600, 2600),
-      new THREE.MeshLambertMaterial({ color: 0x3a3340 })
+      TTGfx.mat.ground('sand', 220, 220, { color: 0xb9a78c })
     );
     base.rotation.x = -Math.PI / 2;
     base.position.y = -0.12;
+    base.userData.ground = true;
     this.group.add(base);
 
-    // Asphalt tile with dashed yellow centre lines on every road
-    const T = 512;
+    const xMin = -C / 2, xMax = this.size + C / 2;
+    const zMin = -C / 2, zMax = this.size + this.R / 2 + 2;
+    const w = xMax - xMin, h = zMax - zMin;
+
+    // Asphalt: PBR tile every 6 m with world-space wet patches
+    const road = new THREE.Mesh(new THREE.PlaneGeometry(w, h), TTGfx.mat.road(w / 6, h / 6));
+    road.rotation.x = -Math.PI / 2;
+    road.position.set((xMin + xMax) / 2, 0, (zMin + zMax) / 2);
+    road.receiveShadow = shadows;
+    road.userData.ground = true;
+    this.group.add(road);
+
+    // Road paint on a transparent overlay: one tile per city block, road centre
+    // lines sit on the tile edges and intersections on the tile corners.
+    const T = 1024;
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = T;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#2b2933';
-    ctx.fillRect(0, 0, T, T);
-    for (let i = 0; i < 4500; i++) {
-      ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.07)';
-      ctx.fillRect(Math.random() * T, Math.random() * T, 3, 3);
+    const hw = (this.R / 2 / C) * T;       // half road width in pixels
+    const zebra = (3.2 / C) * T;           // crossing depth
+    const clear = hw + zebra + 34;         // keep intersections free of centre dashes
+
+    ctx.fillStyle = 'rgba(244, 184, 28, 0.88)';
+    for (let p = 0; p < T; p += 96) {
+      if (p < clear || p + 52 > T - clear) continue;
+      ctx.fillRect(p, 0, 52, 5);
+      ctx.fillRect(p, T - 5, 52, 5);
+      ctx.fillRect(0, p, 5, 52);
+      ctx.fillRect(T - 5, p, 5, 52);
     }
-    // keep intersections clear (road width R=18 => ~150px around each crossing)
-    const clear = (this.R / this.C) * T * 0.5 + 24;
-    ctx.fillStyle = 'rgba(255, 190, 11, 0.8)';
-    for (let p = 0; p < T; p += 48) {
-      const nearCorner = p < clear || p > T - clear;
-      if (nearCorner) continue;
-      // horizontal road lines (at v = 0 / T edges)
-      ctx.fillRect(p, 0, 26, 3);
-      ctx.fillRect(p, T - 3, 26, 3);
-      // vertical road lines (at u = 0 / T edges)
-      ctx.fillRect(0, p, 3, 26);
-      ctx.fillRect(T - 3, p, 3, 26);
+
+    // zebra crossings on all four arms of every intersection
+    ctx.fillStyle = 'rgba(232, 230, 220, 0.82)';
+    const bar = (0.5 / C) * T;
+    [hw + 12, T - hw - 12 - zebra].forEach((a) => {
+      for (let v = 8; v + bar < hw - 6; v += bar * 2) {
+        ctx.fillRect(a, v, zebra, bar);
+        ctx.fillRect(a, T - v - bar, zebra, bar);
+        ctx.fillRect(v, a, bar, zebra);
+        ctx.fillRect(T - v - bar, a, bar, zebra);
+      }
+    });
+    // worn paint: knock random specks out of the markings
+    ctx.globalCompositeOperation = 'destination-out';
+    for (let i = 0; i < 5200; i++) {
+      ctx.fillStyle = 'rgba(0,0,0,' + (0.25 + Math.random() * 0.5) + ')';
+      ctx.fillRect(Math.random() * T, Math.random() * T, 2 + Math.random() * 4, 2 + Math.random() * 3);
     }
+    ctx.globalCompositeOperation = 'source-over';
 
     const tex = new THREE.CanvasTexture(canvas);
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     this.asphaltTex = tex;
-
-    const C = this.C;
-    const xMin = -C / 2, xMax = this.size + C / 2;
-    const zMin = -C / 2, zMax = this.size + this.R / 2 + 2;
-    const w = xMax - xMin, h = zMax - zMin;
     tex.repeat.set(w / C, h / C);
     tex.offset.set(xMin / C - Math.floor(xMin / C), -(zMax / C - Math.floor(zMax / C)));
 
-    const road = new THREE.Mesh(
+    const paint = new THREE.Mesh(
       new THREE.PlaneGeometry(w, h),
-      new THREE.MeshLambertMaterial({ map: tex })
+      TTGfx.lit({
+        map: tex, transparent: true, depthWrite: false, roughness: 0.7,
+        polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1
+      })
     );
-    road.rotation.x = -Math.PI / 2;
-    road.position.set((xMin + xMax) / 2, 0, (zMin + zMax) / 2);
-    this.group.add(road);
+    paint.rotation.x = -Math.PI / 2;
+    paint.position.set((xMin + xMax) / 2, 0.012, (zMin + zMax) / 2);
+    paint.receiveShadow = shadows;
+    paint.renderOrder = 1;
+    paint.userData.ground = true;
+    paint.userData.noAO = true;
+    this.group.add(paint);
   }
 
   buildPerimeter() {
     const s = this.size, R = this.R;
-    const wallMat = new THREE.MeshLambertMaterial({ color: 0x8a7f78 });
+    const wallMat = TTGfx.lit({ color: 0x8a7f78 });
     const e = R / 2 + 1.5;
     const mk = (w, h, d, x, y, z, mat) => {
       const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat || wallMat);
@@ -341,7 +381,7 @@ class CairoCity {
     mk(2, 5, len, -e, 2.5, s / 2);          // west
     mk(2, 5, len, s + e, 2.5, s / 2);       // east
     mk(len, 5, 2, s / 2, 2.5, -e);          // north
-    mk(len, 1.4, 2, s / 2, 0.7, s + e, new THREE.MeshLambertMaterial({ color: 0xcfc7b8 })); // south corniche rail
+    mk(len, 1.4, 2, s / 2, 0.7, s + e, TTGfx.lit({ color: 0xcfc7b8 })); // south corniche rail
   }
 
   // -------------------------------------------------------------------- blocks
@@ -461,7 +501,7 @@ class CairoCity {
 
     const awning = new THREE.Mesh(
       new THREE.BoxGeometry(w * 0.9, 0.2, 1.6),
-      new THREE.MeshLambertMaterial({ color: shopIdx % 2 === 0 ? 0xe6192e : 0x2ec4b6 })
+      TTGfx.lit({ color: shopIdx % 2 === 0 ? 0xe6192e : 0x2ec4b6 })
     );
     awning.position.set(0, 2.85, d / 2 + 0.8);
     awning.rotation.x = 0.25;
@@ -481,7 +521,7 @@ class CairoCity {
       g.add(slab);
       const rail = new THREE.Mesh(
         new THREE.BoxGeometry(bw, 0.95, 0.16),
-        new THREE.MeshLambertMaterial({ color: f % 2 === 0 ? 0xe09f3e : 0x2ec4b6 })
+        TTGfx.lit({ color: f % 2 === 0 ? 0xe09f3e : 0x2ec4b6 })
       );
       rail.position.set(bx, by + 0.6, d / 2 + 1.65);
       g.add(rail);
@@ -491,14 +531,14 @@ class CairoCity {
     if (styleSeed % 2 === 0) {
       const tank = new THREE.Mesh(
         new THREE.CylinderGeometry(0.9, 0.9, 1.6, 10),
-        new THREE.MeshLambertMaterial({ color: 0x3b82f6 })
+        TTGfx.lit({ color: 0x3b82f6 })
       );
       tank.position.set(-w * 0.25, h + 1.6, 0);
       g.add(tank);
     }
     const dish = new THREE.Mesh(
       new THREE.CylinderGeometry(0.9, 0.2, 0.35, 10),
-      new THREE.MeshLambertMaterial({ color: 0xdad7cd })
+      TTGfx.lit({ color: 0xdad7cd })
     );
     dish.rotation.x = 0.7;
     dish.position.set(w * 0.25, h + 1.2, d * 0.2);
@@ -574,17 +614,17 @@ class CairoCity {
     cart.position.set(x, 0, z);
     const body = new THREE.Mesh(
       new THREE.BoxGeometry(2.4, 1.2, 2.8),
-      new THREE.MeshLambertMaterial({ color: idx % 2 === 0 ? 0x2ec4b6 : 0xe6192e })
+      TTGfx.lit({ color: idx % 2 === 0 ? 0x2ec4b6 : 0xe6192e })
     );
     body.position.y = 1.0;
     const roof = new THREE.Mesh(
       new THREE.BoxGeometry(3.0, 0.2, 3.4),
-      new THREE.MeshLambertMaterial({ color: 0xffbe0b })
+      TTGfx.lit({ color: 0xffbe0b })
     );
     roof.position.y = 2.8;
     const pot = new THREE.Mesh(
       new THREE.SphereGeometry(0.55, 8, 8),
-      new THREE.MeshLambertMaterial({ color: 0xd97706 })
+      TTGfx.lit({ color: 0xd97706 })
     );
     pot.position.y = 1.9;
     cart.add(body, roof, pot);
@@ -598,12 +638,12 @@ class CairoCity {
     for (let k = -1; k <= 1; k++) {
       const table = new THREE.Mesh(
         new THREE.CylinderGeometry(0.55, 0.55, 0.75, 8),
-        new THREE.MeshLambertMaterial({ color: 0xffffff })
+        TTGfx.lit({ color: 0xffffff })
       );
       table.position.set(k * 2.8, 0.38, 0);
       const chair = new THREE.Mesh(
         new THREE.BoxGeometry(0.55, 0.75, 0.55),
-        new THREE.MeshLambertMaterial({ color: colors[(k + 1) % colors.length] })
+        TTGfx.lit({ color: colors[(k + 1) % colors.length] })
       );
       chair.position.set(k * 2.8 + 0.9, 0.38, 0);
       a.add(table, chair);
@@ -618,7 +658,7 @@ class CairoCity {
 
     const paving = new THREE.Mesh(
       new THREE.BoxGeometry(this.B - 2, 0.12, this.B - 2),
-      new THREE.MeshLambertMaterial({ color: type === 'park' ? 0x3f7d3a : 0xb8a58a })
+      TTGfx.lit({ color: type === 'park' ? 0x3f7d3a : 0xb8a58a })
     );
     paving.position.set(cx, 0.36, cz);
     chunk.group.add(paving);
@@ -642,7 +682,7 @@ class CairoCity {
       basin.position.set(cx, 0.9, cz);
       const water = new THREE.Mesh(
         new THREE.CylinderGeometry(4.5, 4.5, 1.25, 20),
-        new THREE.MeshLambertMaterial({ color: 0x39a0ed })
+        TTGfx.lit({ color: 0x39a0ed })
       );
       water.position.set(cx, 0.95, cz);
       const col = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, 4, 10), this.concreteMat);
@@ -659,24 +699,24 @@ class CairoCity {
           const sz = cz + (b - 1) * 12;
           const canopy = new THREE.Mesh(
             new THREE.BoxGeometry(4.6, 0.25, 4.6),
-            new THREE.MeshLambertMaterial({ color: colors[(a * 3 + b) % colors.length] })
+            TTGfx.lit({ color: colors[(a * 3 + b) % colors.length] })
           );
           canopy.position.set(sx, 3.0, sz);
-          const table = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.0, 2.0), new THREE.MeshLambertMaterial({ color: 0x8b5e3c }));
+          const table = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.0, 2.0), TTGfx.lit({ color: 0x8b5e3c }));
           table.position.set(sx, 0.9, sz);
           chunk.group.add(canopy, table);
           this.addCollider(i, j, sx - 1.9, sx + 1.9, sz - 1.1, sz + 1.1);
         }
       }
     } else if (type === 'mosque') {
-      const base = new THREE.Mesh(new THREE.BoxGeometry(18, 11, 18), new THREE.MeshLambertMaterial({ color: 0xe0c9a6 }));
+      const base = new THREE.Mesh(new THREE.BoxGeometry(18, 11, 18), TTGfx.lit({ color: 0xe0c9a6 }));
       base.position.set(cx, 5.8, cz);
       const dome = new THREE.Mesh(
         new THREE.SphereGeometry(8, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.55),
-        new THREE.MeshLambertMaterial({ color: 0xe9d9bd })
+        TTGfx.lit({ color: 0xe9d9bd })
       );
       dome.position.set(cx, 11.2, cz);
-      const minaret = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.8, 30, 12), new THREE.MeshLambertMaterial({ color: 0xe9d9bd }));
+      const minaret = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.8, 30, 12), TTGfx.lit({ color: 0xe9d9bd }));
       minaret.position.set(cx + 11, 15.3, cz + 11);
       const minTop = new THREE.Mesh(new THREE.ConeGeometry(1.6, 5, 12), this.mat.gold);
       minTop.position.set(cx + 11, 32.8, cz + 11);
@@ -687,7 +727,7 @@ class CairoCity {
     } else {
       // park
       [[-12, -12], [12, -12], [-12, 12], [12, 12], [0, -15], [0, 15], [-15, 0], [15, 0]].forEach(([dx, dz]) => addPalm(cx + dx, cz + dz));
-      const pond = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, 0.2, 18), new THREE.MeshLambertMaterial({ color: 0x39a0ed }));
+      const pond = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, 0.2, 18), TTGfx.lit({ color: 0x39a0ed }));
       pond.position.set(cx, 0.46, cz);
       chunk.group.add(pond);
     }
@@ -714,7 +754,7 @@ class CairoCity {
       const g = new THREE.Group();
       g.position.set(x, 0, z);
       g.rotation.y = rotY;
-      const wedge = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.8, 4.4), new THREE.MeshLambertMaterial({ color: 0xff006e }));
+      const wedge = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.8, 4.4), TTGfx.lit({ color: 0xff006e }));
       wedge.rotation.x = 0.22;
       wedge.position.y = 0.3;
       const stripe = new THREE.Mesh(
@@ -753,21 +793,22 @@ class CairoCity {
   buildNile() {
     const water = new THREE.Mesh(
       new THREE.PlaneGeometry(2600, 900),
-      new THREE.MeshLambertMaterial({ color: 0x1f77b4 })
+      TTGfx.mat.water()
     );
+    water.userData.ground = true;
     water.rotation.x = -Math.PI / 2;
     water.position.set(this.size / 2, -0.02, this.size + this.R / 2 + 2 + 450);
     this.group.add(water);
 
     for (let k = 0; k < 4; k++) {
       const boat = new THREE.Group();
-      const hull = new THREE.Mesh(new THREE.BoxGeometry(3, 1, 9), new THREE.MeshLambertMaterial({ color: 0xf4f1de }));
+      const hull = new THREE.Mesh(new THREE.BoxGeometry(3, 1, 9), TTGfx.lit({ color: 0xf4f1de }));
       hull.position.y = 0.5;
-      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 9, 6), new THREE.MeshLambertMaterial({ color: 0x5c4033 }));
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 9, 6), TTGfx.lit({ color: 0x5c4033 }));
       mast.position.set(0, 5, 0);
       const sail = new THREE.Mesh(
         new THREE.ConeGeometry(3.4, 8, 3),
-        new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide })
+        TTGfx.lit({ color: 0xffffff, side: THREE.DoubleSide })
       );
       sail.rotation.z = Math.PI / 2;
       sail.position.set(0, 5.5, 0);
@@ -781,7 +822,7 @@ class CairoCity {
 
   buildSkyline() {
     const s = this.size;
-    const mat = (c) => new THREE.MeshLambertMaterial({ color: c });
+    const mat = (c) => TTGfx.lit({ color: c });
     const cols = [0xd8b48b, 0xc9a27a, 0xb5896a, 0xcdbfa8, 0xa88b78];
     for (let k = 0; k < 44; k++) {
       const ang = (k / 44) * Math.PI * 2;
