@@ -19,7 +19,7 @@
 
 ## 🎨 Realistic 3D graphics (Three.js r170)
 
-The renderer runs on a vendored Three.js r170 (`vendor/three`, loaded through an import map, no build step) with a modular graphics layer in `src/gfx/`: PBR materials, image-based lighting, soft sun shadows, post-processing, wheel dust, skid marks and a spring-damped chase camera.
+The renderer runs on a vendored Three.js r170 (`vendor/three`) with a modular graphics layer in `src/gfx/`, bundled into one plain script, `dist/tuktuk.js`: PBR materials, image-based lighting, soft sun shadows, post-processing, wheel dust, skid marks and a spring-damped chase camera.
 
 | Before (r128, Lambert) | After (High, sunset) |
 |---|---|
@@ -63,10 +63,18 @@ Assets still marked `pending` use the procedural placeholders in `src/gfx/textur
 
 ### Running locally
 
-ES modules need `http://`, so opening `index.html` from disk no longer works:
+Double-click `index.html`: the game runs straight from disk. `node tools/serve.mjs 8080` (then `http://localhost:8080/`) also works.
+
+### Editing the graphics code
+
+`src/boot.js`, `src/gfx/` and `vendor/three/` are bundled into `dist/tuktuk.js`, which is committed so the game works from disk and on GitHub Pages without a build. It is a classic script rather than ES modules because browsers block modules on `file://`. After changing anything under `src/`, rebuild:
 
 ```bash
-node tools/serve.mjs 8080
+npm install
 ```
 
-Then open `http://localhost:8080/`.
+```bash
+npm run build
+```
+
+`npm run watch` rebuilds on every save. The Pages workflow also rebuilds before deploying, so a forgotten rebuild cannot reach the live site. The other game scripts (`game.js`, `city.js` and so on) are not bundled and need no build.
