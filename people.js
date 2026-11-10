@@ -35,7 +35,7 @@
   function getMat(color, roughness = 0.6) {
     const k = `mat_${color}_${roughness}`;
     if (!MatCache[k]) {
-      MatCache[k] = new THREE.MeshLambertMaterial({ color: color });
+      MatCache[k] = TTGfx.lit({ color: color });
     }
     return MatCache[k];
   }
@@ -455,7 +455,7 @@
           fabricMap = getFabricTexture('stripes', `#${cfg.robeColor.toString(16).padStart(6, '0')}`, cfg.robeAccent);
         }
         const robeMat = fabricMap
-          ? new THREE.MeshLambertMaterial({ map: fabricMap, color: cfg.robeColor })
+          ? TTGfx.lit({ map: fabricMap, color: cfg.robeColor })
           : getMat(cfg.robeColor, 0.85);
 
         // Flared lower hem of the Galabeya covering thighs
@@ -595,7 +595,7 @@
       });
       const facePlane = new THREE.Mesh(
         new THREE.PlaneGeometry(0.24, 0.24),
-        new THREE.MeshLambertMaterial({ map: faceTex, transparent: true })
+        TTGfx.lit({ map: faceTex, transparent: true })
       );
       facePlane.position.set(0, 0.24, 0.17);
       this.headGroup.add(facePlane);
@@ -614,7 +614,7 @@
       if (cfg.headwear === 'tagia') {
         // Traditional Egyptian White Crochet Skullcap (طاقية شبك مطرزة)
         const tagiaTex = getFabricTexture('tagia', '#fcfcfc', '#cccccc');
-        const tagiaMat = new THREE.MeshLambertMaterial({ map: tagiaTex, color: 0xffffff });
+        const tagiaMat = TTGfx.lit({ map: tagiaTex, color: 0xffffff });
         const tagia = new THREE.Mesh(getSphere(0.186, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), tagiaMat);
         tagia.position.set(0, 0.24, 0);
         tagia.scale.set(0.92, 1.12, 0.97);
@@ -911,7 +911,7 @@
     });
     const facePlane = new THREE.Mesh(
       new THREE.PlaneGeometry(0.24, 0.24),
-      new THREE.MeshLambertMaterial({ map: faceTex, transparent: true })
+      TTGfx.lit({ map: faceTex, transparent: true })
     );
     facePlane.position.set(0, 0.22, 0.17);
     headPivot.add(facePlane);
@@ -926,7 +926,7 @@
 
     // Egyptian Embroidered Driver Tagia / Cap
     const tagiaTex = getFabricTexture('tagia', '#ffffff', '#cccccc');
-    const tagiaMat = new THREE.MeshLambertMaterial({ map: tagiaTex, color: 0xffffff });
+    const tagiaMat = TTGfx.lit({ map: tagiaTex, color: 0xffffff });
     const tagia = new THREE.Mesh(getSphere(0.185, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), tagiaMat);
     tagia.position.set(0, 0.23, 0);
     tagia.scale.set(0.92, 1.12, 0.97);

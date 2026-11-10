@@ -5,10 +5,9 @@ class TukTukBashaGame {
     this.container = document.getElementById('canvas-container');
     this.scene = new THREE.Scene();
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.container.appendChild(this.renderer.domElement);
+    // Renderer, tone mapping, shadows and quality tier are owned by the graphics layer
+    this.gfx = window.TTGfx;
+    this.renderer = this.gfx.createRenderer(this.container, this.scene);
 
     this.camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.5, 700);
     this.cameraMode = 0; // 0: chase, 1: low action, 2: high panorama
@@ -43,7 +42,7 @@ class TukTukBashaGame {
     this.arrow = this.createGpsArrow();
 
     // State
-    this.state = 'MENU'; // MENU | GARAGE | PLAYING
+    this.state = 'MENU'; // MENU | GARAGE | PLAYING | PAUSED
     this.mode = 'taxi';  // taxi | freeroam
     this.fare = this.newFareState();
     this.airTime = 0;
@@ -62,6 +61,10 @@ class TukTukBashaGame {
 
     this.clock = new THREE.Clock();
     this.elapsed = 0;
+    this.idleInput = { gas: false, brake: false, left: false, right: false, steerAnalog: 0, drift: false, nitro: false };
+
+    // Post-processing, dust, skid marks, chase camera
+    this.gfx.attach(this);
 
     this.bindEvents();
     this.updateMenuUI();
@@ -100,15 +103,17 @@ class TukTukBashaGame {
 
   // --------------------------------------------------------------------- events
   bindEvents() {
-    window.addEventListener('resize', () => {
-      this.renderer.setSize(window.innerWidth, window.innerHeight);
-      this.camera.aspect = window.innerWidth / window.innerHeight;
-      this.camera.updateProjectionMatrix();
-    });
+    window.addEventListener('resize', () => this.gfx.resize());
 
     window.addEventListener('keydown', (e) => {
-      this.keys[e.code] = true;
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+      if (e.code === 'Escape') {
+        if (this.state === 'PLAYING') this.setPaused(true);
+        else if (this.state === 'PAUSED') this.setPaused(false);
+        return;
+      }
       if (this.state !== 'PLAYING') return;
+      this.keys[e.code] = true;
       if (e.code === 'KeyH') {
         window.audioSys.playHorn();
       } else if (e.code === 'KeyC') {
@@ -118,10 +123,7 @@ class TukTukBashaGame {
         document.getElementById('hud-music-btn').classList.toggle('active', on);
       } else if (e.code === 'KeyR') {
         this.respawnPlayer();
-      } else if (e.code === 'Escape') {
-        this.returnToMenu();
       }
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
 
@@ -210,7 +212,12 @@ class TukTukBashaGame {
       const on = window.audioSys.toggleMusic();
       document.getElementById('hud-music-btn').classList.toggle('active', on);
     });
-    document.getElementById('hud-pause-btn').addEventListener('click', () => this.returnToMenu());
+    document.getElementById('hud-pause-btn').addEventListener('click', () => {
+      if (this.state === 'PLAYING') this.setPaused(true);
+      else if (this.state === 'PAUSED') this.setPaused(false);
+    });
+    document.getElementById('btn-resume').addEventListener('click', () => this.setPaused(false));
+    document.getElementById('btn-pause-menu').addEventListener('click', () => this.returnToMenu());
 
     this.bindTouchControls();
   }
@@ -375,9 +382,13 @@ class TukTukBashaGame {
     this.airTime = 0;
     this.driftAcc = 0;
     this.shiftEarned = 0;
+    this.gfx.skids.clear();
+    this.gfx.chase.snap();
 
     document.getElementById('main-menu').classList.add('hidden');
     document.getElementById('results-screen').classList.add('hidden');
+    document.getElementById('pause-screen').classList.add('hidden');
+    document.getElementById('hud-pause-btn').textContent = '⏸️';
     document.getElementById('game-hud').classList.remove('hidden');
     document.getElementById('hud-slogan').textContent = this.profile.slogan;
 
@@ -393,13 +404,37 @@ class TukTukBashaGame {
     window.audioSys.speakCategory('start');
   }
 
+  setPaused(paused) {
+    const pauseScreen = document.getElementById('pause-screen');
+    const pauseBtn = document.getElementById('hud-pause-btn');
+    if (paused) {
+      if (this.state !== 'PLAYING') return;
+      this.state = 'PAUSED';
+      this.keys = {};
+      this.touchInput = { left: false, right: false, gas: false, brake: false, drift: false, nitro: false, steerAnalog: 0 };
+      pauseScreen.classList.remove('hidden');
+      if (pauseBtn) pauseBtn.textContent = '▶️';
+      window.audioSys.setPaused(true);
+    } else {
+      if (this.state !== 'PAUSED') return;
+      this.state = 'PLAYING';
+      pauseScreen.classList.add('hidden');
+      if (pauseBtn) pauseBtn.textContent = '⏸️';
+      window.audioSys.setPaused(false);
+      this.clock.getDelta();
+    }
+  }
+
   returnToMenu() {
     this.clearFare();
     this.saveProfile();
     this.state = 'MENU';
+    window.audioSys.setPaused(false);
     window.audioSys.stopEngine();
     document.getElementById('game-hud').classList.add('hidden');
     document.getElementById('results-screen').classList.add('hidden');
+    document.getElementById('pause-screen').classList.add('hidden');
+    document.getElementById('hud-pause-btn').textContent = '⏸️';
     document.getElementById('main-menu').classList.remove('hidden');
     this.updateMenuUI();
   }
@@ -408,6 +443,7 @@ class TukTukBashaGame {
     const p = this.player;
     const n = this.world.nearestIntersection(p.position.x, p.position.z);
     p.resetAt(n.x, n.z, p.heading);
+    this.gfx.chase.snap();
     this.popup('↩️ رجّعناك للشارع', '#00f5d4');
   }
 
@@ -775,46 +811,25 @@ class TukTukBashaGame {
   }
 
   // ------------------------------------------------------------------ camera
-  updateFollowCamera(dt) {
-    const v = this.player;
+  updateFollowCamera(dt, input) {
     const presets = [
       { dist: 7.6, height: 3.4, lookAhead: 5.2 },
       { dist: 5.8, height: 2.6, lookAhead: 6.5 },
       { dist: 13.5, height: 7.0, lookAhead: 4.0 }
     ];
-    const pr = presets[this.cameraMode];
-    const extra = v.isNitro ? 1.8 : 0;
-    const dist = pr.dist + extra;
-    const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
-    const baseY = v.position.y + v.yOffset;
-
-    // pull the camera forward if a building would block the view
-    let t = 1;
-    for (; t > 0.28; t -= 0.12) {
-      const x = v.position.x - fx * dist * t;
-      const z = v.position.z - fz * dist * t;
-      if (!this.world.pointBlocked(x, z, 0.9)) break;
-    }
-    const tx = v.position.x - fx * dist * t;
-    const tz = v.position.z - fz * dist * t;
-    const ty = baseY + pr.height * (0.75 + 0.25 * t);
-
-    this.camera.position.lerp(new THREE.Vector3(tx, ty, tz), Math.min(1, dt * 8.5));
-    this.camera.lookAt(
-      v.position.x + fx * pr.lookAhead,
-      baseY + 1.35,
-      v.position.z + fz * pr.lookAhead
-    );
-
-    const targetFov = v.isNitro ? 74 : 60;
-    this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * 6);
-    this.camera.updateProjectionMatrix();
+    const steer = input.steerAnalog ? -input.steerAnalog : (input.left ? 1 : 0) - (input.right ? 1 : 0);
+    // spring-damped chase, speed-based FOV and high-speed shake live in src/gfx/camera.js
+    this.gfx.chase.update(dt, this.player, presets[this.cameraMode], this.world, steer);
   }
 
   // --------------------------------------------------------------------- loop
   animate() {
     requestAnimationFrame(() => this.animate());
     const dt = Math.min(0.05, this.clock.getDelta());
+    if (this.state === 'PAUSED') {
+      this.gfx.render(0);
+      return;
+    }
     this.elapsed += dt;
 
     this.world.update(dt, this.elapsed);
@@ -843,17 +858,21 @@ class TukTukBashaGame {
       );
       this.camera.fov = 60;
       this.camera.updateProjectionMatrix();
-      this.renderer.render(this.scene, this.camera);
+      this.gfx.chase.snap();
+      this.gfx.updateVehicle(dt, this.idleInput);
+      this.gfx.render(dt);
       return;
     }
 
     // ---- PLAYING ----
     const p = this.player;
-    p.updatePhysics(dt, this.getInput(), this.world);
+    const input = this.getInput();
+    p.updatePhysics(dt, input, this.world);
 
     this.life.updateLife(dt, this.elapsed, p, {
       onCrash: (impact) => {
         window.audioSys.playCrash();
+        this.gfx.chase.addImpulse(0.7);
         if (this.fare.state === 'ONBOARD') this.addTip(-8, '💥 خبطة! -8');
         if (Math.random() < 0.4) window.audioSys.speakCategory('crash');
       },
@@ -883,22 +902,25 @@ class TukTukBashaGame {
     if (p.crashImpact > 9 && this.crashCooldown <= 0) {
       this.crashCooldown = 0.6;
       window.audioSys.playCrash();
+      this.gfx.chase.addImpulse(0.8);
       if (this.fare.state === 'ONBOARD') this.addTip(-8, '🧱 خبطة في حيطة! -8');
       if (Math.random() < 0.35) window.audioSys.speakCategory('crash');
     }
 
     this.updateMission(dt);
-    window.audioSys.updateEngine(p.speed / p.maxSpeed, p.isDrifting, p.isNitro);
+    window.audioSys.updateEngine(p.speed / p.maxSpeed, p.isDrifting, p.isNitro, input.gas ? 1 : 0, p.yOffset > 0.15);
 
     this.updateArrow();
     this.updateHUD();
     this.drawMinimap();
 
-    this.updateFollowCamera(dt);
-    this.renderer.render(this.scene, this.camera);
+    this.updateFollowCamera(dt, input);
+    this.gfx.updateVehicle(dt, input);
+    this.gfx.render(dt);
   }
 }
 
-window.addEventListener('DOMContentLoaded', () => {
+// Called by src/boot.js once Three.js, the graphics layer and all game scripts are loaded.
+window.startTukTukGame = () => {
   window.game = new TukTukBashaGame();
-});
+};

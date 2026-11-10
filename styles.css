@@ -1084,6 +1084,20 @@ kbd {
   gap: 10px;
 }
 
+.pause-modal {
+  width: min(460px, 94vw);
+}
+
+.pause-modal p {
+  margin: 8px 0 18px;
+  color: #e2dfee;
+  font-weight: 700;
+}
+
+.pause-modal .results-actions {
+  flex-wrap: wrap;
+}
+
 /* ---------- Open-world taxi HUD: fare card + tip popups ---------- */
 .fare-card {
   position: fixed;
@@ -1150,4 +1164,54 @@ kbd {
 
 #minimap-canvas {
   border-radius: 50%;
+}
+
+/* ---------- Boot loader ---------- */
+#boot-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 40%, #2a1b4a 0%, #0c0918 70%);
+  transition: opacity 0.45s ease;
+}
+#boot-loader.done { opacity: 0; pointer-events: none; }
+.boot-box { width: min(420px, 82vw); text-align: center; color: #fff; font-family: 'Cairo', sans-serif; }
+.boot-title { font-size: 2rem; font-weight: 900; margin-bottom: 18px; }
+.boot-track { height: 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.14); overflow: hidden; }
+#boot-bar { height: 100%; width: 4%; border-radius: 999px; background: linear-gradient(90deg, #ffbe0b, #ff006e); transition: width 0.2s ease; }
+#boot-text { margin-top: 12px; font-size: 0.95rem; font-weight: 700; color: #d9d4ec; }
+#boot-loader.error #boot-text { color: #ff8fa3; }
+
+/* ---------- Graphics quality selector ---------- */
+.quality-title { margin-top: 14px; }
+.quality-title small { font-weight: 700; opacity: 0.7; }
+.quality-selector { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.quality-btn {
+  padding: 8px 4px;
+  border-radius: 10px;
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.18s;
+}
+.quality-btn.active, .quality-btn:hover {
+  background: var(--gold);
+  color: #111;
+  border-color: #fff;
+  box-shadow: 0 0 12px rgba(255, 190, 11, 0.6);
+}
+.quality-btn.active { cursor: default; }
+
+/* Low tier has no post-processing: a CSS vignette stands in for the shader one */
+body.gfx-low #canvas-container::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.32) 100%);
 }
