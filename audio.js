@@ -88,46 +88,117 @@ class EgyptianAudioSystem {
   }
 
   // Start 2-stroke Tuk-Tuk engine rumble
+  // Single-cylinder tuk-tuk engine. Signal chain:
+  //   saw + square (firing harmonics) -> low-pass that opens with revs and throttle
+  //   -> amplitude "putt-putt" at the firing rate -> master gain
+  //   + band-passed noise for exhaust rasp and intake hiss
+  // Revs follow road speed through a 4-speed gearbox, so the pitch climbs, drops on
+  // each upshift and climbs again instead of being a single rising whine.
   startEngine() {
     this.init();
     if (this.engineRunning || !this.ctx) return;
+    const ctx = this.ctx;
 
-    this.engineOsc = this.ctx.createOscillator();
-    this.engineSub = this.ctx.createOscillator();
-    const filter = this.ctx.createBiquadFilter();
-    this.engineGain = this.ctx.createGain();
-
+    this.engineOsc = ctx.createOscillator();
+    this.engineSub = ctx.createOscillator();
     this.engineOsc.type = 'sawtooth';
     this.engineSub.type = 'square';
-    this.engineOsc.frequency.value = 54;
-    this.engineSub.frequency.value = 27;
+    this.engineOsc.frequency.value = 46;
+    this.engineSub.frequency.value = 23;
 
-    filter.type = 'lowpass';
-    filter.frequency.value = 260;
+    const subGain = ctx.createGain();
+    subGain.gain.value = 0.55;
 
+    this.engineFilter = ctx.createBiquadFilter();
+    this.engineFilter.type = 'lowpass';
+    this.engineFilter.frequency.value = 240;
+    this.engineFilter.Q.value = 2.2;
+
+    // firing pulse: an LFO at the firing rate modulates the level
+    this.enginePulse = ctx.createGain();
+    this.enginePulse.gain.value = 0.7;
+    this.engineLfo = ctx.createOscillator();
+    this.engineLfo.type = 'sine';
+    this.engineLfo.frequency.value = 23;
+    this.engineLfoDepth = ctx.createGain();
+    this.engineLfoDepth.gain.value = 0.3;
+    this.engineLfo.connect(this.engineLfoDepth);
+    this.engineLfoDepth.connect(this.enginePulse.gain);
+
+    // exhaust / intake noise
+    const len = ctx.sampleRate;
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    this.engineNoise = ctx.createBufferSource();
+    this.engineNoise.buffer = buf;
+    this.engineNoise.loop = true;
+    this.engineNoiseFilter = ctx.createBiquadFilter();
+    this.engineNoiseFilter.type = 'bandpass';
+    this.engineNoiseFilter.frequency.value = 420;
+    this.engineNoiseFilter.Q.value = 0.9;
+    this.engineNoiseGain = ctx.createGain();
+    this.engineNoiseGain.gain.value = 0.05;
+
+    this.engineGain = ctx.createGain();
     this.engineGain.gain.value = 0.045;
 
-    this.engineOsc.connect(filter);
-    this.engineSub.connect(filter);
-    filter.connect(this.engineGain);
-    this.engineGain.connect(this.ctx.destination);
+    this.engineOsc.connect(this.engineFilter);
+    this.engineSub.connect(subGain);
+    subGain.connect(this.engineFilter);
+    this.engineFilter.connect(this.enginePulse);
+    this.engineNoise.connect(this.engineNoiseFilter);
+    this.engineNoiseFilter.connect(this.engineNoiseGain);
+    this.engineNoiseGain.connect(this.enginePulse);
+    this.enginePulse.connect(this.engineGain);
+    this.engineGain.connect(ctx.destination);
 
     this.engineOsc.start();
     this.engineSub.start();
+    this.engineLfo.start();
+    this.engineNoise.start();
+    this.engineRpm = 0.12;
+    this.engineGear = 0;
     this.engineRunning = true;
   }
 
-  updateEngine(speedRatio, isDrifting, isNitro) {
+  // speedRatio: speed / top speed. throttle: 0..1. airborne: wheels off the ground.
+  updateEngine(speedRatio, isDrifting, isNitro, throttle = 1, airborne = false) {
     if (!this.engineRunning || !this.ctx) return;
     const now = this.ctx.currentTime;
-    const baseFreq = 48 + Math.abs(speedRatio) * 115 + (isNitro ? 55 : 0);
-    // Add slight 2-stroke putt-putt vibrato
-    const flutter = Math.sin(now * 38) * 3.5;
-    this.engineOsc.frequency.setTargetAtTime(baseFreq + flutter, now, 0.05);
-    this.engineSub.frequency.setTargetAtTime((baseFreq * 0.5) + flutter * 0.5, now, 0.05);
+    const s = Math.min(1.5, Math.abs(speedRatio));
 
-    const targetGain = isNitro ? 0.075 : (isDrifting ? 0.065 : 0.042);
-    this.engineGain.gain.setTargetAtTime(targetGain, now, 0.08);
+    // 4-speed gearbox with hysteresis: upshift late, downshift early
+    const tops = [0.3, 0.55, 0.82, 1.6];
+    let gear = this.engineGear || 0;
+    if (s > tops[gear] * 0.97 && gear < 3) gear++;
+    else if (gear > 0 && s < tops[gear - 1] * 0.72) gear--;
+    this.engineGear = gear;
+    const lo = gear === 0 ? 0 : tops[gear - 1] * 0.62;
+    let rpm = 0.14 + 0.86 * Math.min(1, Math.max(0, (s - lo) / (tops[gear] - lo)));
+    if (airborne && throttle > 0) rpm = 1;                 // unloaded wheels rev freely
+    if (isDrifting) rpm = Math.max(rpm, 0.8);              // wheelspin keeps the revs up
+    if (isNitro) rpm = Math.min(1.15, rpm + 0.15);
+    // revs cannot jump: quick to climb, slower to fall
+    const prev = this.engineRpm === undefined ? rpm : this.engineRpm;
+    this.engineRpm = prev + (rpm - prev) * (rpm > prev ? 0.22 : 0.1);
+    rpm = this.engineRpm;
+
+    const load = Math.max(0, Math.min(1, throttle));
+    const firing = 22 + rpm * 96;                           // Hz
+    const flutter = Math.sin(now * 31) * 1.4;
+    this.engineOsc.frequency.setTargetAtTime(firing * 2 + flutter, now, 0.04);
+    this.engineSub.frequency.setTargetAtTime(firing + flutter * 0.5, now, 0.04);
+    this.engineLfo.frequency.setTargetAtTime(firing, now, 0.04);
+    // distinct putt-putt at idle, smoothing out as revs rise
+    this.engineLfoDepth.gain.setTargetAtTime(0.42 - rpm * 0.3, now, 0.08);
+    this.engineFilter.frequency.setTargetAtTime(190 + rpm * 620 + load * 520 + (isNitro ? 500 : 0), now, 0.06);
+    this.engineNoiseFilter.frequency.setTargetAtTime(300 + rpm * 1500, now, 0.06);
+    this.engineNoiseGain.gain.setTargetAtTime(0.03 + rpm * 0.1 * (0.4 + load * 0.6) + (isDrifting ? 0.05 : 0), now, 0.08);
+
+    const level = 0.03 + rpm * 0.018 + load * 0.02 + (isNitro ? 0.018 : 0) + (isDrifting ? 0.008 : 0);
+    this.engineLevel = level;
+    if (!this.paused) this.engineGain.gain.setTargetAtTime(level, now, 0.07);
   }
 
   stopEngine() {
@@ -135,6 +206,9 @@ class EgyptianAudioSystem {
     try {
       this.engineOsc.stop();
       this.engineSub.stop();
+      this.engineLfo.stop();
+      this.engineNoise.stop();
+      this.engineGain.disconnect();
     } catch (e) {}
     this.engineRunning = false;
   }
@@ -341,7 +415,7 @@ class EgyptianAudioSystem {
       try { window.speechSynthesis.cancel(); } catch (e) {}
     }
     if (this.engineRunning && this.engineGain && this.ctx) {
-      this.engineGain.gain.setTargetAtTime(paused ? 0 : 0.042, this.ctx.currentTime, 0.05);
+      this.engineGain.gain.setTargetAtTime(paused ? 0 : (this.engineLevel || 0.042), this.ctx.currentTime, 0.05);
     }
   }
 
