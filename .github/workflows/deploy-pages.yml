@@ -24,6 +24,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # dist/tuktuk.js is committed for file:// play; rebuild it so Pages never ships a stale bundle
+      - name: Build graphics bundle
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 

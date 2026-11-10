@@ -1,0 +1,13 @@
+{
+  "name": "tuktuk-basha",
+  "private": true,
+  "description": "Build tooling only. The game itself is static files; dist/tuktuk.js is committed so it runs from GitHub Pages or straight from disk.",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "watch": "node tools/build.mjs --watch",
+    "serve": "node tools/serve.mjs 8080"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.0"
+  }
+}

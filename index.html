@@ -19,11 +19,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&family=Tajawal:wght@500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css" />
-  <!-- Three.js r170 is vendored (no build step, works on GitHub Pages) -->
-  <script type="importmap">
-    { "imports": { "three": "./vendor/three/three.module.min.js", "three/addons/": "./vendor/three/addons/" } }
-  </script>
-  <link rel="modulepreload" href="vendor/three/three.module.min.js" />
 </head>
 <body>
   <!-- 3D Canvas Container -->
@@ -383,7 +378,9 @@
     </div>
   </div>
 
-  <!-- boot.js loads Three.js + the graphics layer, then the game scripts in order -->
-  <script type="module" src="src/boot.js"></script>
+  <!-- dist/tuktuk.js = Three.js r170 + src/gfx + src/boot.js, bundled by `npm run build`.
+       A classic script (not a module) so the game also runs when index.html is opened from disk.
+       It then loads the game scripts (audio.js ... game.js) in order. -->
+  <script src="dist/tuktuk.js"></script>
 </body>
 </html>
